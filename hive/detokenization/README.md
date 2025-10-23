@@ -48,12 +48,12 @@ Before invoking the UDF, configure one of the following session variables:
 
 ```sql
 -- Inline JSON configuration
-SET skyflow.config='{
+SET skyflow.config={
   "vaultId": "<vault-id>",
   "clusterId": "<cluster-id>",
   "env": "SANDBOX",
   "credentials": "{\"clientID\":\"...\",\"privateKey\":\"...\"}"
-}';
+};
 
 -- Or point to a JSON file
 SET skyflow.config.file=/path/to/skyflow-config.json;
