@@ -88,19 +88,5 @@ The `detokenize(token)` UDF resolves Skyflow tokens during Hive query execution.
 - Session configuration must supply either `skyflow.config` (inline JSON) **or** `skyflow.config.file` (path to JSON). The helper validates that exactly one source is provided.
 - Configuration JSON expects `vaultId`, `clusterId`, optional `env`, and either `credentials` (inline JSON string) or `filePath` pointing to credentials on disk.
 - The helper initializes the Skyflow SDK once per session and caches the client for subsequent UDF calls.
-- Detokenization requests are batched behind the scenes, and responses are returned as standard Hive `STRING` values.
 
 ---
-
-## Repository Layout
-
-```
-README.md
-spark/
-  src/main/java/com/skyflow/spark/...
-hive/
-  tokenization/
-    tokenizer/src/main/java/com/skyflow/spark/...
-  detokenization/
-    src/main/java/com/skyflow/hive/...
-```
