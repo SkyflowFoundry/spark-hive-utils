@@ -15,7 +15,6 @@ import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.times;
 
 import com.skyflow.spark.VaultHelper;
-import com.skyflow.spark.SkyflowColumn;
 import com.skyflow.spark.Constants;
 import com.skyflow.spark.TableHelper;
 
@@ -92,20 +91,9 @@ class VaultHelperTest {
 
     private StructType sampleSchema;
 
-    // Simulate COLUMN_MAPPINGS for this test
-    private static final Map<String, SkyflowColumn> COLUMN_MAPPINGS = new HashMap<>();
-
     @BeforeEach
     void setup() throws SkyflowException {
         MockitoAnnotations.openMocks(this);
-
-        COLUMN_MAPPINGS.put("first_nm", SkyflowColumn.NAME);
-        COLUMN_MAPPINGS.put("ph_nbr", SkyflowColumn.PHONE_NUMBER);
-        COLUMN_MAPPINGS.put("email_id", SkyflowColumn.EMAIL);
-
-        // inject this into the class under test if it's static there
-        Constants.SKYFLOW_COLUMN_MAP.clear();
-        Constants.SKYFLOW_COLUMN_MAP.putAll(COLUMN_MAPPINGS);
 
         when(tableHelperMock.getVaultId()).thenReturn("vault-id");
         when(tableHelperMock.getVaultUrl()).thenReturn("https://cluster-id.vault.skyflow.com");
@@ -190,6 +178,26 @@ class VaultHelperTest {
                 RowFactory.create("token2", "token3"),
                 RowFactory.create("token4", "token5"));
         return spark.createDataFrame(data, sampleSchema);
+    }
+
+    private Properties firstNameOnlyColumnMapping() {
+        Properties properties = new Properties();
+        properties.setProperty(Constants.COLUMN_MAPPING,
+                "{\"first_nm\": {\"tableName\": \"name_table\", \"columnName\": \"name\", \"tokenGroupName\": \"name\"}}");
+        return properties;
+    }
+
+    private Properties firstNameAndPhoneOnlyColumnMapping() {
+        Properties properties = new Properties();
+        properties.setProperty(Constants.COLUMN_MAPPING,
+                "{\"first_nm\": {\"tableName\": \"name_table\", \"columnName\": \"name\", \"tokenGroupName\": \"name\"}, \"ph_nbr\": {\"tableName\": \"ph_nbr\", \"columnName\": \"ph_nbr\", \"tokenGroupName\": \"ph_nbr\"}}");
+        return properties;
+    }
+
+    private Properties emptyColumnMapping() {
+        Properties properties = new Properties();
+        properties.setProperty(Constants.COLUMN_MAPPING, "{}");
+        return properties;
     }
     // Builder and initialization tests
 
@@ -298,11 +306,6 @@ class VaultHelperTest {
     @Test
     void tokenize_success_no_retry() throws SkyflowException {
         mockInitializeSkyflowClientForTest();
-        COLUMN_MAPPINGS.clear();
-        COLUMN_MAPPINGS.put("first_nm", SkyflowColumn.NAME);
-        // inject this into the class under test if it's static there
-        Constants.SKYFLOW_COLUMN_MAP.clear();
-        Constants.SKYFLOW_COLUMN_MAP.putAll(COLUMN_MAPPINGS);
         Dataset<Row> data = createSampleInputDataset();
 
         List<Success> successes = new ArrayList<>();
@@ -326,7 +329,7 @@ class VaultHelperTest {
         when(insertResponseMock.getSummary()).thenReturn(summary);
 
         when(vaultMock.bulkInsert(any())).thenReturn(insertResponseMock);
-        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, null);
+        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, firstNameOnlyColumnMapping());
 
         assertNotNull(result);
         List<Row> rows = result.collectAsList();
@@ -431,12 +434,6 @@ class VaultHelperTest {
     @Test
     void tokenize_handles_duplicate_values_across_tables() throws SkyflowException {
         mockInitializeSkyflowClientForTest();
-        COLUMN_MAPPINGS.clear();
-        COLUMN_MAPPINGS.put("first_nm", SkyflowColumn.NAME);
-        // inject this into the class under test if it's static there
-        Constants.SKYFLOW_COLUMN_MAP.clear();
-        Constants.SKYFLOW_COLUMN_MAP.putAll(COLUMN_MAPPINGS);
-
         Dataset<Row> data = spark.createDataFrame(Collections.singletonList(RowFactory.create("shared", "shared")),
                 sampleSchema);
 
@@ -495,11 +492,6 @@ class VaultHelperTest {
     @Test
     void tokenize_multiple_retries_partial_success() throws SkyflowException {
         mockInitializeSkyflowClientForTest();
-        COLUMN_MAPPINGS.clear();
-        COLUMN_MAPPINGS.put("first_nm", SkyflowColumn.NAME);
-        // inject this into the class under test if it's static there
-        Constants.SKYFLOW_COLUMN_MAP.clear();
-        Constants.SKYFLOW_COLUMN_MAP.putAll(COLUMN_MAPPINGS);
         Dataset<Row> data = createSampleInputDataset();
 
         // Batch 1 initial: 1 success (index 0), 2 errors (1,2)
@@ -569,7 +561,7 @@ class VaultHelperTest {
                 .thenReturn(retryResponse1) // Retry 1
                 .thenReturn(retryResponse2); // Retry 2
 
-        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, null);
+        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, firstNameOnlyColumnMapping());
 
         assertNotNull(result);
 
@@ -595,12 +587,6 @@ class VaultHelperTest {
     @Test
     void tokenize_multiple_retries_no_retryable_errors() throws SkyflowException {
         mockInitializeSkyflowClientForTest();
-        COLUMN_MAPPINGS.clear();
-        COLUMN_MAPPINGS.put("first_nm", SkyflowColumn.NAME);
-        // inject this into the class under test if it's static there
-        Constants.SKYFLOW_COLUMN_MAP.clear();
-        Constants.SKYFLOW_COLUMN_MAP.putAll(COLUMN_MAPPINGS);
-        Constants.SKYFLOW_COLUMN_MAP.putAll(COLUMN_MAPPINGS);
         Dataset<Row> data = createSampleInputDataset();
 
         // Batch 1 initial: 1 success (index 0), 2 errors (1,2)
@@ -631,7 +617,7 @@ class VaultHelperTest {
         when(vaultMock.bulkInsert(any()))
                 .thenReturn(insertResponseMock); // Initial
 
-        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, null);
+        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, firstNameOnlyColumnMapping());
 
         assertNotNull(result);
 
@@ -854,7 +840,7 @@ class VaultHelperTest {
                 .thenReturn(retryResponse1) // Retry 1
                 .thenReturn(retryResponse2); // Retry 2
 
-        Dataset<Row> result = vaultHelper.detokenize(tableHelperMock, tokenizedData, null);
+        Dataset<Row> result = vaultHelper.detokenize(tableHelperMock, tokenizedData, firstNameOnlyColumnMapping());
 
         assertNotNull(result);
 
@@ -910,7 +896,7 @@ class VaultHelperTest {
         when(vaultMock.bulkDetokenize(any()))
                 .thenReturn(detokenizeResponseMock); // Initial
 
-        Dataset<Row> result = vaultHelper.detokenize(tableHelperMock, tokenizedData, null);
+        Dataset<Row> result = vaultHelper.detokenize(tableHelperMock, tokenizedData, firstNameOnlyColumnMapping());
 
         assertNotNull(result);
 
@@ -932,7 +918,7 @@ class VaultHelperTest {
         mockInitializeSkyflowClientForTest();
         Dataset<Row> emptyDataset = spark.emptyDataFrame();
 
-        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, emptyDataset, null);
+        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, emptyDataset, emptyColumnMapping());
 
         assertNotNull(result);
         assertEquals(0, result.count());
@@ -946,7 +932,7 @@ class VaultHelperTest {
 
         Dataset<Row> emptyDataset = spark.emptyDataFrame();
 
-        Dataset<Row> result = vaultHelper.detokenize(tableHelperMock, emptyDataset, null);
+        Dataset<Row> result = vaultHelper.detokenize(tableHelperMock, emptyDataset, emptyColumnMapping());
 
         assertNotNull(result);
         assertEquals(0, result.count());
@@ -964,7 +950,7 @@ class VaultHelperTest {
         Dataset<Row> data = createSampleInputDataset();
 
         Exception ex = assertThrows(SkyflowException.class,
-                () -> vaultHelper.tokenize(tableHelperMock, data, null));
+                () -> vaultHelper.tokenize(tableHelperMock, data, firstNameOnlyColumnMapping()));
         assertTrue(ex.getMessage().contains("Initialization failed"));
     }
 
@@ -978,18 +964,38 @@ class VaultHelperTest {
         Dataset<Row> tokenizedData = createSampleTokenizedDataset();
 
         SkyflowException ex = assertThrows(SkyflowException.class,
-                () -> vaultHelper.detokenize(tableHelperMock, tokenizedData, null));
+                () -> vaultHelper.detokenize(tableHelperMock, tokenizedData, firstNameOnlyColumnMapping()));
         assertTrue(ex.getMessage().contains("Initialization failed"));
+    }
+
+    @Test
+    void tokenize_throws_when_column_mappings_absent() throws SkyflowException {
+        mockInitializeSkyflowClientForTest();
+
+        Dataset<Row> data = createSampleInputDataset();
+
+        SkyflowException ex = assertThrows(SkyflowException.class,
+                () -> vaultHelper.tokenize(tableHelperMock, data, null));
+        assertNotNull(ex.getCause());
+        assertTrue(ex.getCause().getMessage().contains("Invalid properties, properties passed are either null or empty"));
+    }
+
+    @Test
+    void detokenize_throws_when_column_mappings_absent() throws SkyflowException {
+        mockInitializeSkyflowClientForTest();
+
+        Dataset<Row> tokenizedData = createSampleTokenizedDataset();
+
+        SkyflowException ex = assertThrows(SkyflowException.class,
+                () -> vaultHelper.detokenize(tableHelperMock, tokenizedData, null));
+        assertNotNull(ex.getCause());
+        assertTrue(ex.getCause().getMessage().contains("Invalid properties, properties passed are either null or empty"));
     }
 
     @Test
     void tokenize_multiple_retries_all_success() throws SkyflowException {
         mockInitializeSkyflowClientForTest();
-        COLUMN_MAPPINGS.clear();
-        COLUMN_MAPPINGS.put("first_nm", SkyflowColumn.NAME);
-        // inject this into the class under test if it's static there
-        Constants.SKYFLOW_COLUMN_MAP.clear();
-        Constants.SKYFLOW_COLUMN_MAP.putAll(COLUMN_MAPPINGS);
+
         Dataset<Row> data = createSampleInputDataset();
 
         // Initial response: all failed but retryable errors
@@ -1032,7 +1038,7 @@ class VaultHelperTest {
                 .thenReturn(insertResponseMock) // initial failed
                 .thenReturn(retryResponse); // retry all success
 
-        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, null);
+        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, firstNameOnlyColumnMapping());
 
         assertNotNull(result);
         List<Row> rows = result.collectAsList();
@@ -1052,11 +1058,6 @@ class VaultHelperTest {
         mockInitializeSkyflowClientForTest();
 
         Dataset<Row> data = createSampleInputDataset();
-        COLUMN_MAPPINGS.put("first_nm", SkyflowColumn.NAME);
-
-        // inject this into the class under test if it's static there
-        Constants.SKYFLOW_COLUMN_MAP.clear();
-        Constants.SKYFLOW_COLUMN_MAP.putAll(COLUMN_MAPPINGS);
 
         // Initial response: all failed retryable errors
         List<ErrorRecord> initialErrors = new ArrayList<>();
@@ -1094,7 +1095,7 @@ class VaultHelperTest {
                 .thenReturn(insertResponseMock) // initial failed
                 .thenReturn(retryResponse); // retry all failed again
 
-        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, null);
+        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, firstNameOnlyColumnMapping());
 
         assertNotNull(result);
         List<Row> rows = result.collectAsList();
@@ -1151,7 +1152,7 @@ class VaultHelperTest {
                 .thenReturn(detokenizeResponseMock) // initial failed
                 .thenReturn(retryResponse); // retry all success
 
-        Dataset<Row> result = vaultHelper.detokenize(tableHelperMock, tokenizedData, null);
+        Dataset<Row> result = vaultHelper.detokenize(tableHelperMock, tokenizedData, firstNameAndPhoneOnlyColumnMapping());
 
         assertNotNull(result);
         List<Row> rows = result.collectAsList();
@@ -1206,7 +1207,7 @@ class VaultHelperTest {
                 .thenReturn(detokenizeResponseMock) // initial failed
                 .thenReturn(retryResponse); // retry all failed again
 
-        Dataset<Row> result = vaultHelper.detokenize(tableHelperMock, tokenizedData, null);
+        Dataset<Row> result = vaultHelper.detokenize(tableHelperMock, tokenizedData, firstNameAndPhoneOnlyColumnMapping());
 
         assertNotNull(result);
         List<Row> rows = result.collectAsList();
@@ -1252,7 +1253,7 @@ class VaultHelperTest {
 
         when(vaultMock.bulkInsert(any())).thenReturn(insertResponseMock);
 
-        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, null);
+        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, firstNameOnlyColumnMapping());
 
         assertNotNull(result);
         List<Row> rows = result.collectAsList();
@@ -1295,7 +1296,7 @@ class VaultHelperTest {
 
         when(vaultMock.bulkDetokenize(any())).thenReturn(detokenizeResponseMock);
 
-        Dataset<Row> result = vaultHelper.detokenize(tableHelperMock, tokenizedData, null);
+        Dataset<Row> result = vaultHelper.detokenize(tableHelperMock, tokenizedData, firstNameOnlyColumnMapping());
 
         assertNotNull(result);
         List<Row> rows = result.collectAsList();
@@ -1313,11 +1314,6 @@ class VaultHelperTest {
     void tokenize_retry_logic_with_exponential_backoff() throws SkyflowException {
         mockInitializeSkyflowClientForTest();
         Dataset<Row> data = createSampleInputDataset();
-        COLUMN_MAPPINGS.clear();
-        COLUMN_MAPPINGS.put("first_nm", SkyflowColumn.NAME);
-        // inject this into the class under test if it's static there
-        Constants.SKYFLOW_COLUMN_MAP.clear();
-        Constants.SKYFLOW_COLUMN_MAP.putAll(COLUMN_MAPPINGS);
 
         // Initial response: 1 success, 1 retryable error
         Success success0 = mock(Success.class);
@@ -1363,7 +1359,7 @@ class VaultHelperTest {
                 .thenReturn(insertResponseMock) // Initial
                 .thenReturn(retryResponse); // Retry
 
-        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, null);
+        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, firstNameOnlyColumnMapping());
 
         assertNotNull(result);
         List<Row> rows = result.collectAsList();
@@ -1380,12 +1376,6 @@ class VaultHelperTest {
     @Test
     void detokenize_retry_logic_with_exponential_backoff() throws SkyflowException {
         mockInitializeSkyflowClientForTest();
-
-        COLUMN_MAPPINGS.clear();
-        COLUMN_MAPPINGS.put("first_nm", SkyflowColumn.NAME);
-        // inject this into the class under test if it's static there
-        Constants.SKYFLOW_COLUMN_MAP.clear();
-        Constants.SKYFLOW_COLUMN_MAP.putAll(COLUMN_MAPPINGS);
 
         Dataset<Row> tokenizedData = createSampleTokenizedDataset();
         // Initial response: 1 success, 1 retryable error
@@ -1421,7 +1411,7 @@ class VaultHelperTest {
                 .thenReturn(detokenizeResponseMock) // Initial
                 .thenReturn(retryResponse); // Retry
 
-        Dataset<Row> result = vaultHelper.detokenize(tableHelperMock, tokenizedData, null);
+        Dataset<Row> result = vaultHelper.detokenize(tableHelperMock, tokenizedData, firstNameOnlyColumnMapping());
 
         assertNotNull(result);
         List<Row> rows = result.collectAsList();

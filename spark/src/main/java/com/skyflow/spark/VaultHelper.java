@@ -113,8 +113,7 @@ public class VaultHelper {
                     .add(ERROR, DataTypes.StringType, true);
 
             List<Row> outputRows = new ArrayList<>();
-            Map<String, ColumnMapping> schemaMappings = Helper.configureColumnMappings(schema, properties,
-                    tableHelper.getTableName());
+            Map<String, ColumnMapping> schemaMappings = Helper.configureColumnMappings(schema, properties);
             if (schemaMappings.isEmpty()) {
                 logger.warning(
                         LOG_PREFIX + "No tokenizable columns found for provided configuration. Skipping tokenization.");
@@ -180,8 +179,7 @@ public class VaultHelper {
                     .add(ERROR, DataTypes.StringType, true);
 
             List<Row> outputRows = new ArrayList<>();
-            Map<String, ColumnMapping> schemaMappings = Helper.configureColumnMappings(schema, properties,
-                    tableHelper.getTableName());
+            Map<String, ColumnMapping> schemaMappings = Helper.configureColumnMappings(schema, properties);
             if (schemaMappings.isEmpty()) {
                 logger.warning(LOG_PREFIX
                         + "No detokenizable columns found for provided configuration. Skipping detokenization.");

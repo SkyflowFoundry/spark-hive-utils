@@ -84,16 +84,19 @@ class TokenizeHiveConfig {
         this.retryCount = retryCount;
     }
 
+    // Load configuration by merging process environment variables with optional .env entries.
     static TokenizeHiveConfig load() {
         return fromEnv(mergedEnvironment(System.getenv(), Paths.get(".env")));
     }
 
+    // .env values are loaded first so runtime environment values can override them.
     static Map<String, String> mergedEnvironment(Map<String, String> runtimeEnv, Path dotEnvPath) {
         Map<String, String> merged = new HashMap<>(readDotEnv(dotEnvPath));
         merged.putAll(runtimeEnv);
         return merged;
     }
 
+    // Build an immutable configuration object, validating required keys and parsing types.
     static TokenizeHiveConfig fromEnv(Map<String, String> env) {
         String src = require(env, "TOKENIZER_SOURCE_TABLE");
         String dst = require(env, "TOKENIZER_DEST_TABLE");
@@ -239,12 +242,14 @@ class TokenizeHiveConfig {
         return retryCount;
     }
 
+    // Provide the column mapping in the format expected by the Spark helper.
     Properties buildTokenizationProperties() {
         Properties props = new Properties();
         props.put("columnMapping", columnMapping);
         return props;
     }
 
+    // Lightweight .env reader that ignores comments and malformed lines.
     private static Map<String, String> readDotEnv(Path dotEnvPath) {
         Map<String, String> values = new HashMap<>();
         if (dotEnvPath == null || !Files.exists(dotEnvPath)) {
@@ -281,6 +286,7 @@ class TokenizeHiveConfig {
         return value;
     }
 
+    // Prefer primary key, otherwise fall back to another required key for backward compatibility.
     private static String requireWithFallback(Map<String, String> env, String primary, String fallback) {
         String value = env.get(primary);
         if (value != null && !value.trim().isEmpty()) {
@@ -300,6 +306,7 @@ class TokenizeHiveConfig {
         return Optional.of(value);
     }
 
+    // Accept only explicit true/false representations to avoid misconfigurations.
     private static boolean parseBoolean(String raw) {
         if ("true".equalsIgnoreCase(raw)) {
             return true;
@@ -310,6 +317,7 @@ class TokenizeHiveConfig {
         throw new IllegalArgumentException("Boolean value expected but found: " + raw);
     }
 
+    // Propagate a helpful error that names the offending key.
     private static int parseInt(String raw, String key) {
         try {
             return Integer.parseInt(raw);

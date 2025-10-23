@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.skyflow.spark.Helper;
 import com.skyflow.spark.ColumnMapping;
-import com.skyflow.spark.SkyflowColumn;
 import com.skyflow.spark.Constants;
 
 import com.skyflow.vault.data.ErrorRecord;
@@ -63,7 +62,6 @@ class HelperTest {
 
     // Simulate COLUMN_MAPPINGS for this test
     private static final Map<String, ColumnMapping> COLUMN_MAPPINGS = new HashMap<>();
-    private static final Map<String, SkyflowColumn> SKYFLOW_ENUM_MAPPINGS = new HashMap<>();
 
     @BeforeEach
     void setup() {
@@ -73,20 +71,9 @@ class HelperTest {
                 .getOrCreate();
 
         COLUMN_MAPPINGS.clear();
-        SKYFLOW_ENUM_MAPPINGS.clear();
         COLUMN_MAPPINGS.put("name", new ColumnMapping("name", "name", "deterministic_name", "name_redaction"));
-        COLUMN_MAPPINGS.put("phone", new ColumnMapping("phone", "phone", null));
+        COLUMN_MAPPINGS.put("phone", new ColumnMapping("phone", "phone", ""));
         COLUMN_MAPPINGS.put("email", new ColumnMapping("email", "email", "deterministic_email"));
-
-        // inject this into the class under test if it's static there
-        SKYFLOW_ENUM_MAPPINGS.put("name", SkyflowColumn.NAME);
-        SKYFLOW_ENUM_MAPPINGS.put("phone", SkyflowColumn.PHONE_NUMBER);
-        SKYFLOW_ENUM_MAPPINGS.put("email", SkyflowColumn.EMAIL);
-
-        Constants.SKYFLOW_COLUMN_MAP.clear();
-        Constants.SKYFLOW_COLUMN_MAP.putAll(SKYFLOW_ENUM_MAPPINGS);
-        Constants.SKYFLOW_COLUMN_MAP.put("cust_profl.gender_cd", SkyflowColumn.GENDER);
-        Constants.SKYFLOW_COLUMN_MAP.put("cust_shopper_experian_profl.gender_cd", SkyflowColumn.EXPERIAN_GENDER_CODE);
 
         sampleSchema = new StructType(new StructField[] {
                 new StructField("name", DataTypes.StringType, true, Metadata.empty()),
@@ -125,8 +112,7 @@ class HelperTest {
                         +
                         "}");
 
-        Map<String, ColumnMapping> columnMappingMap = Helper.configureColumnMappings(sampleSchema, properties,
-                "customers");
+        Map<String, ColumnMapping> columnMappingMap = Helper.configureColumnMappings(sampleSchema, properties);
 
         assertEquals(1, columnMappingMap.size());
         ColumnMapping mapping = columnMappingMap.get("name");
@@ -144,15 +130,12 @@ class HelperTest {
         Properties properties = new Properties();
         properties.setProperty(Constants.COLUMN_MAPPING,
                 "{\"name\": {\"tableName\": \"override_table\", \"columnName\": \"override_column\"}}");
-        Map<String, ColumnMapping> columnMappingMap = Helper.configureColumnMappings(sampleSchema, properties,
-                "customers");
+        Map<String, ColumnMapping> columnMappingMap = Helper.configureColumnMappings(sampleSchema, properties);
         assertEquals(1, columnMappingMap.size());
-
-        columnMappingMap = Helper.configureColumnMappings(sampleSchema, null, "customers");
-
-        Map<String, ColumnMapping> defaults = Helper.constructDefaultSchemaMappings(sampleSchema, "customers");
-        assertEquals(defaults.size(), columnMappingMap.size());
-        assertEquals(defaults.get("name").getTableName(), columnMappingMap.get("name").getTableName());
+        ColumnMapping mapping = columnMappingMap.get("name");
+        assertNotNull(mapping);
+        assertEquals("override_table", mapping.getTableName());
+        assertEquals("override_column", mapping.getColumnName());
     }
 
     @Test
@@ -166,8 +149,7 @@ class HelperTest {
                         +
                         "}");
 
-        Map<String, ColumnMapping> columnMappingMap = Helper.configureColumnMappings(sampleSchema, properties,
-                "customers");
+        Map<String, ColumnMapping> columnMappingMap = Helper.configureColumnMappings(sampleSchema, properties);
 
         assertFalse(columnMappingMap.containsKey("unknown_column"));
 
@@ -182,10 +164,9 @@ class HelperTest {
     void configure_column_mappings_defaults_missing_token_group_and_redaction() throws SkyflowException {
         Properties properties = new Properties();
         properties.setProperty(Constants.COLUMN_MAPPING,
-                "{\"name\": {\"tableName\": \"name_table\", \"columnName\": \"name_column\"}}");
+                "{\"name\": {\"tableName\": \"name_table\", \"columnName\": \"name_column\", \"unique\": \"false\"}}");
 
-        Map<String, ColumnMapping> columnMappingMap = Helper.configureColumnMappings(sampleSchema, properties,
-                "customers");
+        Map<String, ColumnMapping> columnMappingMap = Helper.configureColumnMappings(sampleSchema, properties);
         ColumnMapping mapping = columnMappingMap.get("name");
         assertNotNull(mapping);
         assertEquals("name_table", mapping.getTableName());
@@ -200,8 +181,7 @@ class HelperTest {
         properties.setProperty(Constants.COLUMN_MAPPING,
                 "{\"name\": {\"tableName\": \"name_table\", \"columnName\": \"name_column\", \"tokenGroupName\": \"  \", \"redaction\": \"  \"}}");
 
-        Map<String, ColumnMapping> columnMappingMap = Helper.configureColumnMappings(sampleSchema, properties,
-                "customers");
+        Map<String, ColumnMapping> columnMappingMap = Helper.configureColumnMappings(sampleSchema, properties);
         ColumnMapping mapping = columnMappingMap.get("name");
         assertNotNull(mapping);
         assertEquals("name_table", mapping.getTableName());
@@ -216,7 +196,7 @@ class HelperTest {
         properties.setProperty(Constants.COLUMN_MAPPING, "{\"name\": {}}");
 
         assertThrows(SkyflowException.class,
-                () -> Helper.configureColumnMappings(sampleSchema, properties, "customers"));
+                () -> Helper.configureColumnMappings(sampleSchema, properties));
     }
 
     @Test
@@ -224,8 +204,7 @@ class HelperTest {
         Properties properties = new Properties();
         properties.setProperty(Constants.COLUMN_MAPPING, "{\"first_nm\": null}");
 
-        Map<String, ColumnMapping> columnMappingMap = Helper.configureColumnMappings(sampleSchema, properties,
-                "customers");
+        Map<String, ColumnMapping> columnMappingMap = Helper.configureColumnMappings(sampleSchema, properties);
 
         assertTrue(columnMappingMap.isEmpty());
     }
@@ -237,46 +216,22 @@ class HelperTest {
                 "{\"name\": {\"tableName\": \"customer_table\"}}");
 
         assertThrows(SkyflowException.class,
-                () -> Helper.configureColumnMappings(sampleSchema, properties, "customers"));
+                () -> Helper.configureColumnMappings(sampleSchema, properties));
     }
 
     @Test
-    void configure_column_mappings_reverts_to_defaults_when_property_blank() throws SkyflowException {
+    void configure_column_mappings_throws_when_property_blank() {
         Properties properties = new Properties();
         properties.setProperty(Constants.COLUMN_MAPPING, "");
 
-        Map<String, ColumnMapping> columnMappingMap = Helper.configureColumnMappings(sampleSchema, properties,
-                "customers");
-        Map<String, ColumnMapping> defaults = Helper.constructDefaultSchemaMappings(sampleSchema, "customers");
-        assertFalse(defaults.isEmpty());
-        for (String column : Arrays.asList("name", "email", "phone")) {
-            ColumnMapping expected = defaults.get(column);
-            ColumnMapping actual = columnMappingMap.get(column);
-            assertNotNull(actual, "Expected default mapping for column " + column);
-            assertEquals(expected.getTableName(), actual.getTableName());
-            assertEquals(expected.getColumnName(), actual.getColumnName());
-            assertEquals(expected.getTokenGroupName(), actual.getTokenGroupName());
-        }
+        assertThrows(SkyflowException.class,
+                () -> Helper.configureColumnMappings(sampleSchema, properties));
     }
 
     @Test
-    void configure_column_mappings_reset_to_default_when_null_properties() throws SkyflowException {
-        Properties properties = new Properties();
-        properties.setProperty(Constants.COLUMN_MAPPING,
-                "{\"name\": {\"tableName\": \"override_table\", \"columnName\": \"override_column\"}}");
-        Map<String, ColumnMapping> columnMappingMap = Helper.configureColumnMappings(sampleSchema, properties,
-                "customers");
-        assertEquals(1, columnMappingMap.size());
-
-        columnMappingMap = Helper.configureColumnMappings(sampleSchema, null, "customers");
-
-        Map<String, ColumnMapping> defaults = Helper.constructDefaultSchemaMappings(sampleSchema, "customers");
-        assertEquals(defaults.size(), columnMappingMap.size());
-        ColumnMapping actual = columnMappingMap.get("name");
-        assertNotNull(actual);
-        assertEquals(defaults.get("name").getTableName(), actual.getTableName());
-        assertEquals(defaults.get("name").getColumnName(), actual.getColumnName());
-        assertEquals(defaults.get("name").getTokenGroupName(), actual.getTokenGroupName());
+    void configure_column_mappings_throws_when_properties_null() {
+        assertThrows(SkyflowException.class,
+                () -> Helper.configureColumnMappings(sampleSchema, null));
     }
 
     @Test
@@ -285,62 +240,70 @@ class HelperTest {
         properties.setProperty(Constants.COLUMN_MAPPING, "{invalid-json");
 
         assertThrows(SkyflowException.class,
-                () -> Helper.configureColumnMappings(sampleSchema, properties, "customers"));
+                () -> Helper.configureColumnMappings(sampleSchema, properties));
     }
 
     @Test
-    void build_default_column_mappings_includes_known_columns() {
-        Map<String, ColumnMapping> defaults = Helper.constructDefaultSchemaMappings(sampleSchema, "customers");
-        assertTrue(defaults.containsKey("name"));
-        ColumnMapping name = defaults.get("name");
-        assertEquals("name", name.getTableName());
-        assertEquals("name", name.getColumnName());
-        assertEquals("name", name.getTokenGroupName());
+    void configure_column_mappings_defaults_unique_true_when_not_specified() throws SkyflowException {
+        Properties properties = new Properties();
+        properties.setProperty(Constants.COLUMN_MAPPING,
+                "{\"name\": {\"tableName\": \"customer_table\", \"columnName\": \"customer_name\"}}");
 
-        assertTrue(defaults.containsKey("email"));
-        ColumnMapping email = defaults.get("email");
-        assertEquals("email", email.getTableName());
-        assertEquals("email", email.getColumnName());
-        assertEquals("email", email.getTokenGroupName());
+        Map<String, ColumnMapping> columnMappingMap = Helper.configureColumnMappings(sampleSchema, properties);
+        ColumnMapping mapping = columnMappingMap.get("name");
+        assertNotNull(mapping);
+        assertNotNull(mapping.getIsUnique());
+        assertTrue(mapping.getIsUnique());
     }
 
     @Test
-    void construct_default_schema_mappings_prefixes_gender_for_primary_table() {
-        StructType schema = createSchema("gender_cd");
+    void construct_insert_request_honours_unique_flag() throws SkyflowException {
+        StructType schema = createSchema("name");
+        Row row = createRowWithSchema(schema, "Alice");
 
-        Map<String, ColumnMapping> mappings = Helper.constructDefaultSchemaMappings(schema, "cust_profl");
+        Properties defaultUniqueProps = new Properties();
+        defaultUniqueProps.setProperty(Constants.COLUMN_MAPPING,
+                "{\"name\": {\"tableName\": \"customer_table\", \"columnName\": \"customer_name\"}}");
+        Map<String, ColumnMapping> defaultMappings = Helper.configureColumnMappings(schema, defaultUniqueProps);
+        InsertRequest defaultRequest = Helper.constructInsertRequest(defaultMappings, Collections.singletonList(row));
+        InsertRecord defaultRecord = defaultRequest.getRecords().get(0);
+        assertNotNull(defaultRecord.getUpsert(), "Default unique should populate upsert list");
+        assertEquals(Collections.singletonList("customer_name"), defaultRecord.getUpsert());
 
-        assertTrue(mappings.containsKey("gender_cd"));
-        ColumnMapping mapping = mappings.get("gender_cd");
-        assertEquals("gender", mapping.getTableName());
-        assertEquals("gender", mapping.getColumnName());
-        assertEquals("gender", mapping.getTokenGroupName());
-    }
-
-    @Test
-    void construct_default_schema_mappings_prefixes_gender_for_experian_table() {
-        StructType schema = createSchema("gender_cd");
-
-        Map<String, ColumnMapping> mappings = Helper.constructDefaultSchemaMappings(schema,
-                "cust_shopper_experian_profl");
-
-        assertTrue(mappings.containsKey("gender_cd"));
-        ColumnMapping mapping = mappings.get("gender_cd");
-        assertEquals("experian_gender_code", mapping.getTableName());
-        assertEquals("experian_gender_code", mapping.getColumnName());
-        assertEquals("experian_gender_code", mapping.getTokenGroupName());
-    }
-
-    @Test
-    void construct_default_schema_mappings_skips_unknown_gender_table() {
-        StructType schema = createSchema("gender_cd");
-
-        Map<String, ColumnMapping> mappings = Helper.constructDefaultSchemaMappings(schema, "unknown_table");
-
-        assertTrue(mappings.isEmpty());
+        Properties nonUniqueProps = new Properties();
+        nonUniqueProps.setProperty(Constants.COLUMN_MAPPING,
+                "{\"name\": {\"tableName\": \"customer_table\", \"columnName\": \"customer_name\", \"unique\": \"false\"}}");
+        Map<String, ColumnMapping> nonUniqueMappings = Helper.configureColumnMappings(schema, nonUniqueProps);
+        InsertRequest nonUniqueRequest = Helper.constructInsertRequest(nonUniqueMappings, Collections.singletonList(row));
+        InsertRecord nonUniqueRecord = nonUniqueRequest.getRecords().get(0);
+        assertNull(nonUniqueRecord.getUpsert(), "Non-unique columns should not populate upsert list");
     }
 
     // endregion Column mapping configuration tests
+
+    // region concatWithUnderscore tests
+
+    @Test
+    void concat_with_underscore_handles_standard_values() {
+        assertEquals("hello_123", Helper.concatWithUnderscore("hello", 123));
+    }
+
+    @Test
+    void concat_with_underscore_handles_null_first_value() {
+        assertEquals("_world", Helper.concatWithUnderscore(null, "world"));
+    }
+
+    @Test
+    void concat_with_underscore_handles_null_second_value() {
+        assertEquals("hello_", Helper.concatWithUnderscore("hello", null));
+    }
+
+    @Test
+    void concat_with_underscore_handles_both_null_values() {
+        assertEquals("_", Helper.concatWithUnderscore(null, null));
+    }
+
+    // endregion concatWithUnderscore tests
 
     // region Dataset batching tests
 
@@ -953,6 +916,51 @@ class HelperTest {
     }
 
     @Test
+    public void replace_data_with_tokens_sets_error_when_token_group_mismatch() {
+        StructType schema = createSchema("name");
+        Row row = createRowWithSchema(schema, "Alice");
+        ColumnMapping mapping = new ColumnMapping("name_table", "name_column", "expected_group");
+        Map<String, ColumnMapping> mappings = new HashMap<>();
+        mappings.put("name", mapping);
+
+        Success success = mock(Success.class);
+        Token token = mock(Token.class);
+        when(token.getToken()).thenReturn("tokenValue");
+        when(token.getTokenGroupName()).thenReturn("different_group");
+        Map<String, List<Token>> tokenMap = new HashMap<>();
+        tokenMap.put("name_column", Collections.singletonList(token));
+        when(success.getTokens()).thenReturn(tokenMap);
+
+        Map<Object, Success> successMap = Collections
+                .singletonMap(Helper.concatWithUnderscore("name_table", "Alice"), success);
+
+        List<Row> out = Helper.replaceDataWithTokens(mappings, Collections.singletonList(row), successMap,
+                Collections.emptyMap());
+
+        Row result = out.get(0);
+        assertEquals("Alice", result.getString(0));
+        assertEquals(Constants.STATUS_ERROR, result.getString(1));
+        assertEquals(Constants.INSERT_FAILED, result.get(2));
+    }
+
+    @Test
+    public void replace_data_with_tokens_sets_error_when_value_absent_in_maps() {
+        StructType schema = createSchema("name");
+        Row row = createRowWithSchema(schema, "Bob");
+        ColumnMapping mapping = new ColumnMapping("name_table", "name_column");
+        Map<String, ColumnMapping> mappings = new HashMap<>();
+        mappings.put("name", mapping);
+
+        List<Row> out = Helper.replaceDataWithTokens(mappings, Collections.singletonList(row), Collections.emptyMap(),
+                Collections.emptyMap());
+
+        Row result = out.get(0);
+        assertEquals("Bob", result.getString(0));
+        assertEquals(Constants.STATUS_ERROR, result.getString(1));
+        assertEquals(Constants.INSERT_FAILED, result.get(2));
+    }
+
+    @Test
     public void replace_data_with_tokens_success_token_not_populated() {
         StructType schema = createSchema("phone");
         Row row = createRowWithSchema(schema, 123);
@@ -1240,7 +1248,7 @@ class HelperTest {
     public void construct_detokenize_request_skip_mapping_without_token_group_or_redaction() {
         COLUMN_MAPPINGS.remove("email");
         COLUMN_MAPPINGS.remove("phone");
-        COLUMN_MAPPINGS.put("name", new ColumnMapping("name", "name", null));
+        COLUMN_MAPPINGS.put("name", new ColumnMapping("name", "name", ""));
         StructType schema = createSchema("name");
         Row row = createRowWithSchema(schema, "tokenZ");
 

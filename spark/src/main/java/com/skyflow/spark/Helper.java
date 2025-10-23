@@ -41,15 +41,16 @@ public class Helper {
     private static final TypeReference<Map<String, Map<String, String>>> COLUMN_MAPPING_TYPE = new TypeReference<Map<String, Map<String, String>>>() {
     };
 
-    public static Map<String, ColumnMapping> configureColumnMappings(StructType schema, Properties properties,
-            String datasetTableName) throws SkyflowException {
+    public static Map<String, ColumnMapping> configureColumnMappings(StructType schema, Properties properties) throws SkyflowException {
         if (properties == null) {
-            return constructDefaultSchemaMappings(schema, datasetTableName);
+            throw new SkyflowException(
+                    "Invalid properties, properties passed are either null or empty");
         }
 
         String columnMappingConfig = properties.getProperty(COLUMN_MAPPING);
         if (columnMappingConfig == null || columnMappingConfig.trim().isEmpty()) {
-            return constructDefaultSchemaMappings(schema, datasetTableName);
+            throw new SkyflowException(
+                    "Column mapping config is empty or null");
         }
 
         try {
@@ -80,7 +81,12 @@ public class Helper {
                 if (isBlank(redaction)) {
                     redaction = null;
                 }
-                columnMappingsMap.put(datasetColumn, buildMapping(tableName, columnName, tokenGroupName, redaction));
+                boolean isUnique = true;
+                String isColumnUnique = mappingDetails.get(UNIQUE);
+                if (!isBlank(isColumnUnique)) {
+                    isUnique = Boolean.parseBoolean(isColumnUnique);
+                }
+                columnMappingsMap.put(datasetColumn, buildMapping(tableName, columnName, tokenGroupName, redaction, isUnique));
             }
             return columnMappingsMap;
         } catch (Exception e) {
@@ -101,33 +107,14 @@ public class Helper {
     }
 
     private static ColumnMapping buildMapping(String tableName, String columnName, String tokenGroupName,
-            String redaction) {
+            String redaction, Boolean isUnique) {
         if (redaction != null) {
-            return new ColumnMapping(tableName, columnName, tokenGroupName, redaction);
+            return new ColumnMapping(tableName, columnName, tokenGroupName, redaction, isUnique);
         }
         if (tokenGroupName != null) {
-            return new ColumnMapping(tableName, columnName, tokenGroupName);
+            return new ColumnMapping(tableName, columnName, tokenGroupName, isUnique);
         }
-        return new ColumnMapping(tableName, columnName);
-    }
-
-    public static Map<String, ColumnMapping> constructDefaultSchemaMappings(StructType schema,
-            String datasetTableName) {
-        Map<String, ColumnMapping> schemaMappings = new HashMap<>();
-        for (String datasetColumn : schema.fieldNames()) {
-            String lookupColumn = datasetColumn;
-            // need table name check in case if gender_cd, as it is present in two tables
-            if (datasetColumn.equals("gender_cd")) {
-                lookupColumn = datasetTableName.toLowerCase() + "." + datasetColumn;
-            }
-            if (!SKYFLOW_COLUMN_MAP.containsKey(lookupColumn)) {
-                // moving ahead, if mapping is not found considers column as non-tokenizable
-                continue;
-            }
-            String vaultFieldName = SKYFLOW_COLUMN_MAP.get(lookupColumn).toString();
-            schemaMappings.put(datasetColumn, new ColumnMapping(vaultFieldName, vaultFieldName, vaultFieldName));
-        }
-        return schemaMappings;
+        return new ColumnMapping(tableName, columnName, isUnique);
     }
 
     // Splits a Dataset<Row> into batches of a specified size
@@ -200,8 +187,12 @@ public class Helper {
             // Build record
             HashMap<String, Object> record = new HashMap<>();
             record.put(vaultColumn, row.getAs(datasetColumn));
-            records.add(InsertRecord.builder().data(record).table(skyflowColumnMapping.getTableName())
-                    .upsert(Collections.singletonList(skyflowColumnMapping.getColumnName())).build());
+            if(skyflowColumnMapping.getIsUnique() != null && skyflowColumnMapping.getIsUnique() == true) {
+                records.add(InsertRecord.builder().data(record).table(skyflowColumnMapping.getTableName())
+                        .upsert(Collections.singletonList(skyflowColumnMapping.getColumnName())).build());
+            } else {
+                records.add(InsertRecord.builder().data(record).table(skyflowColumnMapping.getTableName()).build());
+            }
         }
         return records;
     }
