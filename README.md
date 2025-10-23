@@ -85,7 +85,7 @@ Column mappings must be supplied through the `columnMapping` property; the helpe
 
 The `detokenize(token)` UDF resolves Skyflow tokens during Hive query execution.
 
-- Session configuration must supply either `skyflow.config` (inline JSON) **or** `skyflow.config.file` (path to JSON). The helper validates that exactly one source is provided.
+- Session configuration must supply either `skyflow.config` (inline JSON) **or** `skyflow.config.file` (path to JSON). The helper validates that atleast one source is provided. If both `skyflow.config` and `skyflow.config.file` are provided, `skyflow.config` is prioritised.
 - Configuration JSON expects `vaultId`, `clusterId`, optional `env`, and either `credentials` (inline JSON string) or `filePath` pointing to credentials on disk.
 - The helper initializes the Skyflow SDK once per session and caches the client for subsequent UDF calls.
 
