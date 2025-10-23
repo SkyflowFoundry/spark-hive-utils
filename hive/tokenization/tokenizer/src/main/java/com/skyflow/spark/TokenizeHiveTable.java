@@ -11,6 +11,7 @@ import static org.apache.spark.sql.functions.col;
 public class TokenizeHiveTable {
 
     public static void main(String[] args) throws SkyflowException {
+        // Load configuration from env/.env and initialise Hive-enabled Spark session.
         TokenizeHiveConfig config = TokenizeHiveConfig.load();
         SparkSession spark = SparkSession.builder()
                 .appName(config.getSparkAppName())
@@ -26,6 +27,7 @@ public class TokenizeHiveTable {
         srcDf.show();
         Dataset<Row> tokDf = sparkTokenize(spark, srcDf, config);
 
+        // Create or append to the destination Hive table depending on existence.
         if (!tableExists(spark, config.getDestinationTable())) {
             tokDf.write().mode(SaveMode.Overwrite).format("hive").saveAsTable(config.getDestinationTable());
         } else {
@@ -35,6 +37,7 @@ public class TokenizeHiveTable {
     }
 
     static Dataset<Row> applyPartitionFilter(SparkSession spark, Dataset<Row> dataset, TokenizeHiveConfig config) {
+        // Apply partition pruning only when both the table and configuration support it.
         boolean hasPartitionFilter = config.getPartitionSpec().isPresent()
                 || (config.getPartitionColumn().isPresent() && config.getPartitionValue().isPresent());
         if (!hasPartitionFilter) {
@@ -54,6 +57,7 @@ public class TokenizeHiveTable {
 
     private static Dataset<Row> sparkTokenize(
         SparkSession spark, Dataset<Row> df, TokenizeHiveConfig config) throws SkyflowException {
+        // Build TableHelper with vault info and delegate tokenization to shared Spark helper.
         TableHelper tableHelper = new TableHelper(
                 config.getVaultId(),
                 config.getCredentialJson(),
@@ -78,6 +82,7 @@ public class TokenizeHiveTable {
     }
 
     private static boolean tableExists(SparkSession spark, String tableName) {
+        // Support db.table notation so job can write across multiple schemas.
         if (tableName.contains(".")) {
             String[] parts = tableName.split("\\.", 2);
             return spark.catalog().tableExists(parts[0], parts[1]);
@@ -87,6 +92,7 @@ public class TokenizeHiveTable {
 
     private static boolean tableHasPartitions(SparkSession spark, String tableName) {
         try {
+            // Inspect the catalog to determine whether partition filters are applicable.
             Dataset<Column> columns;
             if (tableName.contains(".")) {
                 String[] parts = tableName.split("\\.", 2);

@@ -5,6 +5,10 @@ import com.skyflow.enums.LogLevel;
 
 import java.util.logging.Level;
 
+/**
+ * Encapsulates the vault metadata and logging preferences that the Spark helper needs
+ * for tokenization and detokenization calls.
+ */
 public class TableHelper {
     private String vaultUrl;
     private String vaultId;
@@ -15,6 +19,9 @@ public class TableHelper {
     private Level logLevel = Level.INFO;
     private LogLevel jvmLogLevel = LogLevel.INFO;
 
+    /**
+     * Legacy constructor kept for compatibility with callers that still pass an explicit vault URL.
+     */
     public TableHelper(String vaultUrl, String vaultId, String vaultCredentials, String tableName) {
         this.vaultUrl = vaultUrl;
         this.vaultId = vaultId;
@@ -22,6 +29,9 @@ public class TableHelper {
         this.tableName = tableName;
     }
 
+    /**
+     * Preferred constructor for Spark jobs that rely on the shared VaultHelper.
+     */
     public TableHelper(String vaultId, String vaultCredentials, String tableName, String clusterId, Env env,
             Level level, LogLevel logLevel) {
         this.vaultId = vaultId;
