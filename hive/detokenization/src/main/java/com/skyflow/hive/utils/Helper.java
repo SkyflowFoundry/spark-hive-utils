@@ -9,10 +9,24 @@ import com.skyflow.enums.Env;
 import com.skyflow.enums.LogLevel;
 import com.skyflow.errors.SkyflowException;
 import com.skyflow.hive.errors.ErrorMessage;
+import com.skyflow.hive.logs.ErrorLogs;
+import com.skyflow.utils.logger.LogUtil;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentException;
 import org.apache.hadoop.hive.ql.session.SessionState;
 
+/**
+ * Helper class that provides utility methods for Skyflow SDK initialization and configuration.
+ * This class handles the initialization of the Skyflow SDK with appropriate configuration
+ * parameters obtained from the Hive session state.
+ */
 public final class Helper {
+    /**
+     * Retrieves configuration parameters from the Hive session state and initializes the Skyflow SDK.
+     * This method handles the complete initialization process including config validation.
+     *
+     * @return Skyflow An initialized instance of the Skyflow SDK
+     * @throws UDFArgumentException If there are any configuration or initialization errors
+     */
     public static synchronized Skyflow getConfigParametersAndInitialiseSDK() throws UDFArgumentException {
         try {
             SessionState sessionState = SessionState.get();
@@ -24,10 +38,18 @@ public final class Helper {
         } catch (UDFArgumentException e) {
             throw e;
         } catch (Exception e) {
+            LogUtil.printErrorLog(ErrorLogs.FAILED_SDK_INIT.getLog());
             throw new UDFArgumentException(ErrorMessage.FailedSDKInit.getMessage() + e);
         }
     }
 
+    /**
+     * Initializes the Skyflow SDK with the provided configuration.
+     * Sets up credentials, vault configuration, and builds the Skyflow client.
+     *
+     * @param skyflowConfig The configuration object containing vault and credential settings
+     * @return Skyflow An initialized instance of the Skyflow SDK
+     */
     private static synchronized Skyflow initializeSkyflowSDK(Config skyflowConfig) {
         try {
             Credentials credentials = new Credentials();
