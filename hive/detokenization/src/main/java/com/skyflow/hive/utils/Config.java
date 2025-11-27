@@ -16,6 +16,16 @@ public final class Config {
     private String filePath;
     /** Raw credentials string if using direct credentials */
     private String credentials;
+    /** The URL of the Skyflow vault to be accessed */
+    private String vaultURL;
+
+    /**
+     * Gets the Skyflow vault URL
+     * @return String The vault URL
+     */
+    public String getVaultURL() {
+        return vaultURL;
+    }
 
     /**
      * Gets the Skyflow vault ID

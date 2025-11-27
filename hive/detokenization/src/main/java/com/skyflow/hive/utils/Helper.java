@@ -62,6 +62,7 @@ public final class Helper {
             VaultConfig vaultConfig = new VaultConfig();
             vaultConfig.setVaultId(skyflowConfig.getVaultId());
             vaultConfig.setClusterId(skyflowConfig.getClusterId());
+            vaultConfig.setVaultURL(skyflowConfig.getVaultURL());
             vaultConfig.setCredentials(credentials);
             // Only assign Env when explicitly passed in config, else SDK will fall back to default i.e. PROD
             if (skyflowConfig.getEnv() != null) {

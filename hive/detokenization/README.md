@@ -51,6 +51,7 @@ Before invoking the UDF, configure one of the following session variables:
 SET skyflow.config={
   "vaultId": "<vault-id>",
   "clusterId": "<cluster-id>",
+  "vaultURL": "<vault-url>",
   "env": "SANDBOX",
   "credentials": "{\"clientID\":\"...\",\"privateKey\":\"...\"}"
 };
@@ -62,7 +63,9 @@ SET skyflow.config.file=/path/to/skyflow-config.json;
 Constraints:
 
 * Either `skyflow.config` **or** `skyflow.config.file` must be provided (not both).
-* `vaultId` and `clusterId` are mandatory.
+* `vaultId` is mandatory.
+* Atleast one of `clusterId` or `vaultURL` is mandatory.
+* `vaultURL` takes precedence over `clusterId` if both are passed.
 * Provide **exactly one** of `credentials` (inline JSON string) or `filePath` (inside the JSON file).
 * `env` is optional; when absent, the Skyflow SDK defaults to `PROD`.
 
