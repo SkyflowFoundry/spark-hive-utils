@@ -41,6 +41,7 @@ SparkSession spark = SparkSession.builder()
 Dataset<Row> data = spark.table("raw.customer_profiles");
 
 TableHelper tableHelper = new TableHelper(
+    "vault-url",
     "<vault-id>",
     "<credentials-json>",
     "customers",
@@ -53,7 +54,7 @@ TableHelper tableHelper = new TableHelper(
 Properties props = new Properties();
 props.put("columnMapping", "{ \"first_nm\": { \"tableName\": \"customers\", \"columnName\": \"first_name\" } }");
 
-VaultHelper helper = new VaultHelper(spark, 1000, 1000, 3);
+VaultHelper helper = new VaultHelper(spark, 1000, 3);
 Dataset<Row> tokenized = helper.tokenize(tableHelper, data, props);
 
 tokenized
