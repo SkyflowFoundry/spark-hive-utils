@@ -67,6 +67,7 @@ public final class Validations {
     public static void validateConfig(Config config) throws UDFArgumentException {
         String vaultId = config.getVaultId();
         String clusterId = config.getClusterId();
+        String vaultURL = config.getVaultURL();
         String credentials = config.getCredentials();
         String env = config.getEnv();
         String filePath = config.getFilePath();
@@ -77,10 +78,13 @@ public final class Validations {
         } else if (vaultId.trim().isEmpty()) {
             LogUtil.printErrorLog(ErrorLogs.EMPTY_VAULT_ID.getLog());
             throw new UDFArgumentException(ErrorMessage.EmptyVaultId.getMessage());
-        } else if (clusterId == null) {
-            LogUtil.printErrorLog(ErrorLogs.CLUSTER_ID_IS_REQUIRED.getLog());
-            throw new UDFArgumentException(ErrorMessage.InvalidClusterId.getMessage());
-        } else if (clusterId.trim().isEmpty()) {
+        } else if (vaultURL == null && clusterId == null) {
+            LogUtil.printErrorLog(ErrorLogs.EITHER_VAULT_URL_OR_CLUSTER_ID_REQUIRED.getLog());
+            throw new UDFArgumentException(ErrorMessage.EitherVaultUrlOrClusterIdRequired.getMessage());
+        } else if (vaultURL != null && vaultURL.trim().isEmpty()) {
+            LogUtil.printErrorLog(ErrorLogs.EMPTY_VAULT_URL.getLog());
+            throw new UDFArgumentException(ErrorMessage.EmptyVaultUrl.getMessage());
+        } else if (clusterId != null && clusterId.trim().isEmpty()) {
             LogUtil.printErrorLog(ErrorLogs.EMPTY_CLUSTER_ID.getLog());
             throw new UDFArgumentException(ErrorMessage.EmptyClusterId.getMessage());
         } else if (env != null) {

@@ -18,8 +18,9 @@ public enum ErrorMessage {
     // These errors occur when validating the Skyflow configuration parameters
     InvalidVaultId("Initialization failed. Invalid vault ID. Specify a valid vault ID in skyflow config json."),
     EmptyVaultId("Initialization failed. Invalid vault ID. Vault ID must not be empty in skyflow config json."),
-    InvalidClusterId("Initialization failed. Invalid cluster ID. Specify cluster ID in skyflow config json."),
-    EmptyClusterId("Initialization failed. Invalid cluster ID. Specify a valid cluster ID in skyflow config json."),
+    EitherVaultUrlOrClusterIdRequired("Initialization failed. Specify either 'clusterId' or 'vaultURL' in skyflow config json."),
+    EmptyClusterId("Initialization failed. Cluster ID is either null or empty. Specify a valid cluster ID in skyflow config json."),
+    EmptyVaultUrl("Initialization failed. Vault URL is either null or empty. Specify a valid vault URL in skyflow config json."),
     InvalidEnvironment("Initialization failed. Invalid environment specified. Allowed values are [SANDBOX, PROD]. Please check your skyflow config json."),
     EitherCredentialsOrFilePathRequired("Initialization failed. Either provide credentials json or file path in skyflow config json."),
     BothCredentialsOrFilePathProvided("Initialization failed. Both credentials json or file path in skyflow config json are provided. Specify only one of them."),

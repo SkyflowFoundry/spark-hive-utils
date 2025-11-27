@@ -15,7 +15,8 @@ public enum ErrorLogs {
     // Configuration Validation Errors
     VAULT_ID_IS_REQUIRED("Invalid skyflow config provided in hive. Vault ID is required. Please check your skyflow config json."),
     EMPTY_VAULT_ID("Invalid skyflow config provided in hive. Vault ID can not be empty. Please check your skyflow config json."),
-    CLUSTER_ID_IS_REQUIRED("Invalid skyflow config provided in hive. Cluster ID is required. Please check your skyflow config json."),
+    EITHER_VAULT_URL_OR_CLUSTER_ID_REQUIRED("Invalid skyflow config provided in hive. At least one of \"clusterId\" or \"vaultURL\" must be provided. Please check your skyflow config json."),
+    EMPTY_VAULT_URL("Invalid skyflow config provided in hive. Vault URL can not be empty. Please check your skyflow config json."),
     EMPTY_CLUSTER_ID("Invalid skyflow config provided in hive. Cluster ID can not be empty. Please check your skyflow config json."),
     INVALID_ENVIRONMENT("Invalid environment specified. Please check your skyflow config json."),
     EITHER_CREDENTIALS_OR_FILE_PATH_REQUIRED("Invalid skyflow config provided in hive. Either file path or credentials json is required. Please check your skyflow config json."),
