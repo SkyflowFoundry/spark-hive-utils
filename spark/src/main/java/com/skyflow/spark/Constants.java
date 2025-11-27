@@ -6,8 +6,7 @@ import java.util.HashSet;
 public class Constants {
     // Logger prefix reused across helper classes.
     public static final String LOG_PREFIX = "[VaultHelper] ";
-    public static final Integer INSERT_BATCH_SIZE = 1000;
-    public static final Integer DETOKENIZE_BATCH_SIZE = 1000;
+    public static final Integer BATCH_SIZE = 1000;
     public static final String COLUMN_NAME = "columnName";
     public static final String TABLE_NAME = "tableName";
     public static final String UNIQUE = "unique";

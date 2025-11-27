@@ -55,6 +55,16 @@ public class TableHelper {
         this.jvmLogLevel = logLevel;
     }
 
+    public TableHelper(String vaultUrl, String vaultId, String vaultCredentials,
+                       Env env, Level level, LogLevel logLevel) {
+        this.vaultUrl = vaultUrl;
+        this.vaultId = vaultId;
+        this.vaultCredentials = vaultCredentials;
+        this.env = env;
+        this.logLevel = level;
+        this.jvmLogLevel = logLevel;
+    }
+
     public void setVaultId(String vaultId) {
         this.vaultId = vaultId;
     }
