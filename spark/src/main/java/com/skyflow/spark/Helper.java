@@ -235,6 +235,7 @@ public class Helper {
         for (Row row : batch) {
             List<Object> rowData = new ArrayList<>();
             boolean hasFailure = false;
+            String error = INSERT_FAILED;
             for (String field : row.schema().fieldNames()) {
                 ColumnMapping skyflowColumnMapping = schemaMappings.get(field);
                 Object value = row.getAs(field);
@@ -253,6 +254,7 @@ public class Helper {
                     } else if (errorsMap.containsKey(key)) {
                         // If tokenization failed for this value, failing row
                         hasFailure = true;
+                        error = errorsMap.get(key).getError();
                         break;
                     } else {
                         // Token not present in either map — treat as failure, failing row
@@ -265,7 +267,7 @@ public class Helper {
                 }
             }
             if (hasFailure) {
-                rowData = populateErrorRow(row);
+                rowData = populateErrorRow(row, error);
             } else {
                 rowData.add(Constants.STATUS_OK);
                 rowData.add(null);
@@ -297,10 +299,10 @@ public class Helper {
     }
 
     // Build a row containing original values plus error status and message.
-    private static List<Object> populateErrorRow(Row in) {
+    private static List<Object> populateErrorRow(Row in, String error) {
         List<Object> rowData = copyRowData(in);
         rowData.add(Constants.STATUS_ERROR);
-        rowData.add(Constants.INSERT_FAILED);
+        rowData.add(error);
         return rowData;
     }
 
@@ -419,7 +421,7 @@ public class Helper {
         for (Row row : batch) {
             List<Object> rowData = new ArrayList<>();
             boolean hasFailure = false;
-
+            String error = DETOKENIZE_FAILED;
             for (String field : row.schema().fieldNames()) {
                 ColumnMapping skyflowColumnMapping = schemaMappings.get(field);
                 Object cell = row.getAs(field);
@@ -432,6 +434,7 @@ public class Helper {
                         } else if (errorsMap.containsKey(cell)) {
                             // If detokenization failed for this token
                             rowData.add(cell); // keep original token
+                            error = errorsMap.get(cell).getError();
                             hasFailure = true;
                         } else {
                             // Token not present in either map — treat as failure
@@ -451,7 +454,7 @@ public class Helper {
             }
             if (hasFailure) {
                 rowData.add(Constants.STATUS_ERROR);
-                rowData.add(Constants.DETOKENIZE_FAILED);
+                rowData.add(error);
             } else {
                 rowData.add(Constants.STATUS_OK);
                 rowData.add(null);

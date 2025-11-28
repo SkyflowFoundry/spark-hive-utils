@@ -973,7 +973,7 @@ class HelperTest {
                 new HashMap<>());
         assertEquals(123, out.get(0).getInt(0));
         assertEquals("500", out.get(0).getString(1));
-        assertEquals("Insert failed", out.get(0).get(2));
+        assertEquals(Constants.INSERT_FAILED, out.get(0).get(2));
     }
 
     @Test
@@ -1012,10 +1012,12 @@ class HelperTest {
         StructType schema = createSchema("phone");
         Row row = createRowWithSchema(schema, 123);
         ErrorRecord errorRecord = mock(ErrorRecord.class);
-        Map<Object, ErrorRecord> errorsMap = Collections.singletonMap(123, errorRecord);
+        when(errorRecord.getError()).thenReturn("Bad Request");
+        Map<Object, ErrorRecord> errorsMap = Collections.singletonMap("phone_123", errorRecord);
         List<Row> out = Helper.replaceDataWithTokens(COLUMN_MAPPINGS, Collections.singletonList(row), new HashMap<>(),
                 errorsMap);
         assertEquals("500", out.get(0).getString(1));
+        assertEquals("Bad Request", out.get(0).getString(2));
     }
 
     @Test
@@ -1347,7 +1349,9 @@ class HelperTest {
 
         Map<String, DetokenizeResponseObject> successMap = new HashMap<>();
         Map<String, ErrorRecord> errorsMap = new HashMap<>();
-        errorsMap.put("token1", mock(ErrorRecord.class));
+        ErrorRecord errorRecord = mock(ErrorRecord.class);
+        when(errorRecord.getError()).thenReturn("Token not found");
+        errorsMap.put("token1", errorRecord);
 
         List<Row> outputRows = Helper.replaceTokensWithData(COLUMN_MAPPINGS, Collections.singletonList(row), successMap,
                 errorsMap);
@@ -1357,7 +1361,7 @@ class HelperTest {
 
         assertEquals("token1", outputRow.getString(0));
         assertEquals(Constants.STATUS_ERROR, outputRow.getString(1));
-        assertEquals(Constants.DETOKENIZE_FAILED, outputRow.getString(2));
+        assertEquals("Token not found", outputRow.getString(2));
     }
 
     @Test

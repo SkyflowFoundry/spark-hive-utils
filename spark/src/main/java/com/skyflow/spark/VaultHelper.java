@@ -34,8 +34,7 @@ import static org.apache.spark.sql.functions.lit;
 public class VaultHelper {
 
     public Skyflow skyflowClient; // Skyflow client instance
-    private Integer insertBatchSize = INSERT_BATCH_SIZE;
-    private Integer detokenizeBatchSize = DETOKENIZE_BATCH_SIZE;
+    private Integer batchSize = BATCH_SIZE;
     private Integer retryCount = 1;
 
     private final SparkSession sparkSession;// Spark session for data processing
@@ -51,19 +50,17 @@ public class VaultHelper {
     }
 
     // Constructor initializes Spark session, sets insert and detokenize batch sizes
-    public VaultHelper(SparkSession sparkSession, Integer insertBatchSize, Integer detokenizeBatchSize) {
+    public VaultHelper(SparkSession sparkSession, Integer batchSize) {
         this.sparkSession = sparkSession;
-        this.insertBatchSize = insertBatchSize;
-        this.detokenizeBatchSize = detokenizeBatchSize;
+        this.batchSize = batchSize;
     }
 
     // Constructor initializes Spark session, sets insert and detokenize batch sizes
     // and retry count
-    public VaultHelper(SparkSession sparkSession, Integer insertBatchSize, Integer detokenizeBatchSize,
+    public VaultHelper(SparkSession sparkSession, Integer batchSize,
             Integer retryCount) {
         this.sparkSession = sparkSession;
-        this.insertBatchSize = insertBatchSize;
-        this.detokenizeBatchSize = detokenizeBatchSize;
+        this.batchSize = batchSize;
         this.retryCount = retryCount;
     }
 
@@ -75,6 +72,7 @@ public class VaultHelper {
             VaultConfig vaultConfig = new VaultConfig();
             vaultConfig.setVaultId(tableHelper.getVaultId());
             vaultConfig.setClusterId(tableHelper.getClusterId());
+            vaultConfig.setVaultURL(tableHelper.getVaultUrl());
             vaultConfig.setEnv(tableHelper.getEnv());
             vaultConfig.setCredentials(credentials);
             this.skyflowClient = getSkyflowBuilder()
@@ -122,12 +120,12 @@ public class VaultHelper {
                         .withColumn(ERROR, lit(null));
             }
             logger.info(LOG_PREFIX + "No.of tokenizable columns: " + schemaMappings.size());
-            insertBatchSize = Helper.calculateRowBatchSize(schemaMappings, insertBatchSize);
-            logger.info(LOG_PREFIX + "Using batch size: " + insertBatchSize + " Retry count: " + retryCount);
+            batchSize = Helper.calculateRowBatchSize(schemaMappings, batchSize);
+            logger.info(LOG_PREFIX + "Using batch size: " + batchSize + " Retry count: " + retryCount);
 
             int batchNumber = 1;
             // Process data in batches
-            for (List<Row> batch : Helper.getBatches(dataToIngest, insertBatchSize)) {
+            for (List<Row> batch : Helper.getBatches(dataToIngest, batchSize)) {
 
                 // Construct and send insert request
                 InsertRequest insertRequest = Helper.constructInsertRequest(schemaMappings, batch);
@@ -188,13 +186,13 @@ public class VaultHelper {
                         .withColumn(ERROR, lit(null));
             }
             logger.info(LOG_PREFIX + "No.of detokenizable columns: " + schemaMappings.size());
-            detokenizeBatchSize = Helper.calculateRowBatchSize(schemaMappings, detokenizeBatchSize);
-            logger.info(LOG_PREFIX + "Using batch size: " + detokenizeBatchSize + " Retry count: " + retryCount);
+            batchSize = Helper.calculateRowBatchSize(schemaMappings, batchSize);
+            logger.info(LOG_PREFIX + "Using batch size: " + batchSize + " Retry count: " + retryCount);
 
             int batchNumber = 1;
 
             // Process data in batches
-            for (List<Row> batch : Helper.getBatches(tokenizedData, detokenizeBatchSize)) {
+            for (List<Row> batch : Helper.getBatches(tokenizedData, batchSize)) {
                 // Construct and send detokenize request
                 DetokenizeRequest detokenizeRequest = Helper.constructDetokenizeRequest(schemaMappings, batch);
                 logger.info(LOG_PREFIX + "Processing batch #" + batchNumber + ", No.of records: "

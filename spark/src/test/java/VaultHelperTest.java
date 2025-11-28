@@ -112,8 +112,8 @@ class VaultHelperTest {
 
         // Create VaultHelper instance BUT spy it to override initializeSkyflowClient to
         // inject skyflowMock
-        vaultHelper = spy(new VaultHelper(spark, 5, 5));
-        vaultHelper = spy(new VaultHelper(spark, 5, 5, 2));
+        vaultHelper = spy(new VaultHelper(spark, 5));
+        vaultHelper = spy(new VaultHelper(spark, 5,  2));
 
         doAnswer(invocation -> {
             vaultHelper.skyflowClient = skyflowMock;
@@ -230,6 +230,7 @@ class VaultHelperTest {
         when(tableHelperMock.getVaultCredentials()).thenReturn("cred-string");
         when(tableHelperMock.getVaultId()).thenReturn("vault-id");
         when(tableHelperMock.getClusterId()).thenReturn("cluster-id");
+        when(tableHelperMock.getVaultUrl()).thenReturn("vault-url");
         when(tableHelperMock.getEnv()).thenReturn(Env.DEV);
         when(tableHelperMock.getJvmLogLevel()).thenReturn(LogLevel.INFO);
         when(tableHelperMock.getLogLevel()).thenReturn(Level.INFO);
@@ -257,6 +258,7 @@ class VaultHelperTest {
 
         assertEquals("vault-id", configUsed.getVaultId());
         assertEquals("cluster-id", configUsed.getClusterId());
+        assertEquals("vault-url", configUsed.getVaultURL());
         assertEquals(Env.DEV, configUsed.getEnv());
         assertNotNull(configUsed.getCredentials());
         assertEquals("cred-string", configUsed.getCredentials().getCredentialsString());
@@ -1193,6 +1195,7 @@ class VaultHelperTest {
             ErrorRecord err = mock(ErrorRecord.class);
             when(err.getIndex()).thenReturn(i);
             when(err.getCode()).thenReturn(503);
+            when(err.getError()).thenReturn("Token not found");
             retryErrors.add(err);
         }
         DetokenizeSummary retrySummary = mock(DetokenizeSummary.class);
@@ -1235,14 +1238,17 @@ class VaultHelperTest {
         ErrorRecord err1 = mock(ErrorRecord.class);
         when(err1.getCode()).thenReturn(400); // Non-retryable
         when(err1.getIndex()).thenReturn(0);
+        when(err1.getError()).thenReturn("Bad Request");
 
         ErrorRecord err2 = mock(ErrorRecord.class);
         when(err2.getCode()).thenReturn(400); // Non-retryable
         when(err2.getIndex()).thenReturn(1);
+        when(err2.getError()).thenReturn("Unique constraint failed");
 
         ErrorRecord err3 = mock(ErrorRecord.class);
         when(err3.getCode()).thenReturn(400); // Non-retryable
         when(err3.getIndex()).thenReturn(2);
+        when(err3.getError()).thenReturn("Column not found");
 
         Summary summary = mock(Summary.class);
         when(summary.getTotalFailed()).thenReturn(2);
@@ -1263,6 +1269,9 @@ class VaultHelperTest {
         assertEquals("500", rows.get(0).getAs("skyflow_status_code"));
         assertEquals("500", rows.get(1).getAs("skyflow_status_code"));
         assertEquals("500", rows.get(2).getAs("skyflow_status_code"));
+        assertEquals("Bad Request", rows.get(0).getAs("error"));
+        assertEquals("Unique constraint failed", rows.get(1).getAs("error"));
+        assertEquals("Column not found", rows.get(2).getAs("error"));
 
         // Verify no retries occurred
         verify(vaultMock, times(1)).bulkInsert(any());
