@@ -28,7 +28,7 @@ cd hive/detokenization
 mvn clean package
 ```
 
-The build generates a shaded jar: `target/skyflow-hive-1.0.0.jar`.
+The build generates a shaded jar: `target/skyflow-hive-1.0.1.jar`.
 
 Deploying
 ---------
@@ -37,7 +37,7 @@ Deploying
 2. In your Hive session:
 
 ```sql
-ADD JAR hdfs:///libs/skyflow-hive-1.0.0.jar;
+ADD JAR hdfs:///libs/skyflow-hive-1.0.1.jar;
 CREATE TEMPORARY FUNCTION detokenize AS 'com.skyflow.hive.DetokenizeUDF';
 ```
 
