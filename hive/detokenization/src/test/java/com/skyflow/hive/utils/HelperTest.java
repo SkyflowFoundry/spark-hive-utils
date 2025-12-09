@@ -55,4 +55,51 @@ public class HelperTest extends BaseSkyflowTest {
 
         assertThrows(UDFArgumentException.class, () -> Helper.getConfigParametersAndInitialiseSDK());
     }
+
+    @Test
+    public void testInitializeWithCredentialsFile() throws UDFArgumentException {
+        String config = "{" +
+                "\"vaultId\":\"test-vault\"," +
+                "\"clusterId\":\"test-cluster\"," +
+                "\"env\":\"PROD\"," +
+                "\"filePath\":\"/path/to/creds.json\"" + // credentials file path
+                "}";
+
+        when(mockConf.get("skyflow.config")).thenReturn(config);
+        when(mockConf.get("skyflow.config.file")).thenReturn(null);
+
+        Skyflow client = Helper.getConfigParametersAndInitialiseSDK();
+        assertNotNull(client);
+    }
+
+    @Test
+    public void testInitializeWithVaultURL() throws UDFArgumentException {
+        String config = "{" +
+                "\"vaultId\":\"test-vault\"," +
+                "\"clusterId\":\"test-cluster\"," +
+                "\"vaultURL\":\"https://test.vault.url\"," +
+                "\"credentials\":\"{\\\"accessToken\\\":\\\"test-token\\\"}\"" +
+                "}";
+
+        when(mockConf.get("skyflow.config")).thenReturn(config);
+        when(mockConf.get("skyflow.config.file")).thenReturn(null);
+
+        Skyflow client = Helper.getConfigParametersAndInitialiseSDK();
+        assertNotNull(client);
+    }
+
+    @Test
+    public void testInvalidEnvEnumCausesException() {
+        String config = "{" +
+                "\"vaultId\":\"test-vault\"," +
+                "\"clusterId\":\"test-cluster\"," +
+                "\"env\":\"INVALID_ENV\"," +
+                "\"credentials\":\"{\\\"accessToken\\\":\\\"test-token\\\"}\"" +
+                "}";
+
+        when(mockConf.get("skyflow.config")).thenReturn(config);
+        when(mockConf.get("skyflow.config.file")).thenReturn(null);
+
+        assertThrows(UDFArgumentException.class, () -> Helper.getConfigParametersAndInitialiseSDK());
+    }
 }
