@@ -35,7 +35,7 @@ jobs:
           verbose: true
 
       - name: Upload Local Coverage Report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-report-html
           path: hive/detokenization/target/site/jacoco/
