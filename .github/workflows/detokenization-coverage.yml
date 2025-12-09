@@ -26,9 +26,8 @@ jobs:
         run: mvn -B package jacoco:report -f hive/detokenization/pom.xml -Dmaven.javadoc.skip=true
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: hive/detokenization/target/site/jacoco/jacoco.xml
           name: codecov-hive-detokenization
           fail_ci_if_error: true
