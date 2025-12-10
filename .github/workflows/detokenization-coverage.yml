@@ -25,14 +25,6 @@ jobs:
       - name: Build & Test with Maven
         run: mvn -B package jacoco:report -f hive/detokenization/pom.xml -Dmaven.javadoc.skip=true
 
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          files: hive/detokenization/target/site/jacoco/jacoco.xml
-          name: codecov-hive-detokenization
-          fail_ci_if_error: true
-          verbose: true
-
       - name: Upload Local Coverage Report
         uses: actions/upload-artifact@v4
         with:
