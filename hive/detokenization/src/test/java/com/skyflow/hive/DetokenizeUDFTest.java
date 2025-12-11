@@ -133,7 +133,6 @@ public class DetokenizeUDFTest extends BaseSkyflowTest {
             when(mockDetokenizeResponse.getSuccess()).thenReturn((List) Collections.singletonList(mockItem));
 
         } catch (Exception e) {
-            e.printStackTrace();
             fail("Failed to setup dynamic mocks: " + e.getMessage());
         }
 

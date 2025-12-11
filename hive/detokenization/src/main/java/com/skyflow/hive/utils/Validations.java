@@ -51,8 +51,6 @@ public final class Validations {
         } catch (IllegalStateException e) {
             LogUtil.printErrorLog(ErrorLogs.INVALID_TYPE_OF_JSON.getLog());
             throw new UDFArgumentException(Utils.parameterizedString(ErrorMessage.InvalidTypeOfJson.getMessage(), Constants.SKYFLOW_CONFIG_JSON));
-        } catch (UDFArgumentException e) {
-            throw e;
         } catch (Exception e) {
             LogUtil.printErrorLog(ErrorLogs.UNEXPECTED_ERROR_SESSION_STATE.getLog());
             throw new RuntimeException(ErrorMessage.UnexpectedError.getMessage(), e);

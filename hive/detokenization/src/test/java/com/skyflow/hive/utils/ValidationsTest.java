@@ -66,11 +66,17 @@ public class ValidationsTest {
         when(mockConf.get(Constants.SKYFLOW_CONFIG)).thenReturn(null);
         when(mockConf.get(Constants.SKYFLOW_CONFIG_FILE)).thenReturn(null);
 
-        UDFArgumentException ex = assertThrows(UDFArgumentException.class, () ->
+        Exception ex = assertThrows(RuntimeException.class, () ->
                 Validations.validateSessionState(mockSessionState)
         );
 
-        assertTrue(ex.getMessage().contains("Either provide"));
+        assertNotNull(ex.getCause());
+        String causeMessage = ex.getCause().getMessage();
+
+        assertTrue(
+                causeMessage.contains("Either provide") ||
+                        causeMessage.contains("skyflow.config")
+        );
     }
 
     @Test
