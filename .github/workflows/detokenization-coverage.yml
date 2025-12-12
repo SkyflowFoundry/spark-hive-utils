@@ -1,0 +1,32 @@
+name: Hive Detokenization CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'hive/detokenization/**'
+      - '.github/workflows/detokenization-coverage.yml'
+
+jobs:
+  Test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          java-version: "17"
+          distribution: "corretto"
+          cache: "maven"
+
+
+      - name: Build & Test with Maven
+        run: mvn -B package jacoco:report -f hive/detokenization/pom.xml -Dmaven.javadoc.skip=true
+
+      - name: Upload Local Coverage Report
+        uses: actions/upload-artifact@v5
+        with:
+          name: coverage-report-html
+          path: hive/detokenization/target/site/jacoco/
