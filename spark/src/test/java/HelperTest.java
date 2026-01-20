@@ -652,6 +652,23 @@ class HelperTest {
     }
 
     @Test
+    void construct_insert_request_skips_null_values() {
+        StructType schema = createSchema("name", "phone");
+        List<Row> batch = Arrays.asList(
+                createRowWithSchema(schema, null, "1111"),
+                createRowWithSchema(schema, "Alice", null),
+                createRowWithSchema(schema, null, null));
+        COLUMN_MAPPINGS.remove("email");
+        InsertRequest request = Helper.constructInsertRequest(COLUMN_MAPPINGS, batch);
+
+        assertEquals(2, request.getRecords().size());
+        Set<Object> values = request.getRecords().stream()
+                .map(record -> record.getData().values().iterator().next())
+                .collect(Collectors.toSet());
+        assertEquals(new HashSet<>(Arrays.asList("Alice", "1111")), values);
+    }
+
+    @Test
     void construct_insert_request_with_partial_schema() {
         StructType schema = createSchema("name", "email");
         List<Map<String, String>> dataList = Arrays.asList(
@@ -685,6 +702,27 @@ class HelperTest {
             String key = record.getData().keySet().iterator().next();
             assertTrue("name".equals(key) || "email".equals(key));
         }
+    }
+
+    @Test
+    void construct_insert_request_dedupes_values_per_table_and_column() {
+        StructType schema = createSchema("email_primary", "email_secondary");
+        Map<String, ColumnMapping> mappings = new HashMap<>();
+        mappings.put("email_primary", new ColumnMapping("contacts", "email"));
+        mappings.put("email_secondary", new ColumnMapping("contacts", "email"));
+
+        List<Row> batch = Arrays.asList(
+                createRowWithSchema(schema, "a@example.com", "a@example.com"),
+                createRowWithSchema(schema, "b@example.com", "b@example.com"),
+                createRowWithSchema(schema, "a@example.com", "a@example.com"));
+
+        InsertRequest request = Helper.constructInsertRequest(mappings, batch);
+
+        assertEquals(2, request.getRecords().size());
+        Set<Object> values = request.getRecords().stream()
+                .map(record -> record.getData().values().iterator().next())
+                .collect(Collectors.toSet());
+        assertEquals(new HashSet<>(Arrays.asList("a@example.com", "b@example.com")), values);
     }
 
     // endregion Insert request helper tests
@@ -916,6 +954,35 @@ class HelperTest {
     }
 
     @Test
+    void replace_data_with_tokens_keeps_null_values() {
+        StructType schema = createSchema("name", "phone");
+        Row row = createRowWithSchema(schema, null, "1111");
+
+        Map<String, ColumnMapping> mappings = new HashMap<>();
+        mappings.put("name", new ColumnMapping("name_table", "name_column"));
+        mappings.put("phone", new ColumnMapping("phone_table", "phone_column"));
+
+        Success success = mock(Success.class);
+        Token token = mock(Token.class);
+        when(token.getToken()).thenReturn("token-1111");
+        Map<String, List<Token>> tokenMap = new HashMap<>();
+        tokenMap.put("phone_column", Collections.singletonList(token));
+        when(success.getTokens()).thenReturn(tokenMap);
+
+        Map<Object, Success> successMap = Collections
+                .singletonMap(Helper.concatWithUnderscore("phone_table", "1111"), success);
+
+        List<Row> outputRows = Helper.replaceDataWithTokens(mappings, Collections.singletonList(row), successMap,
+                Collections.emptyMap());
+
+        Row outputRow = outputRows.get(0);
+        assertNull(outputRow.get(0));
+        assertEquals("token-1111", outputRow.get(1));
+        assertEquals(Constants.STATUS_OK, outputRow.getString(2));
+        assertNull(outputRow.get(3));
+    }
+
+    @Test
     public void replace_data_with_tokens_sets_error_when_token_group_mismatch() {
         StructType schema = createSchema("name");
         Row row = createRowWithSchema(schema, "Alice");
@@ -1057,6 +1124,23 @@ class HelperTest {
         assertEquals("123", out.get(0).getString(0));
         assertEquals("Alice", out.get(0).getString(1));
         assertEquals("500", out.get(0).getString(2));
+    }
+
+    @Test
+    void replace_data_with_tokens_failure_preserves_original_columns() {
+        StructType schema = createSchema("name", "note");
+        Row row = createRowWithSchema(schema, "Alice", "keep");
+        Map<String, ColumnMapping> mappings = new HashMap<>();
+        mappings.put("name", new ColumnMapping("name_table", "name_column"));
+
+        List<Row> out = Helper.replaceDataWithTokens(mappings, Collections.singletonList(row), Collections.emptyMap(),
+                Collections.emptyMap());
+
+        Row result = out.get(0);
+        assertEquals("Alice", result.getString(0));
+        assertEquals("keep", result.getString(1));
+        assertEquals(Constants.STATUS_ERROR, result.getString(2));
+        assertEquals(Constants.INSERT_FAILED, result.getString(3));
     }
 
     // endregion Token replacement tests
@@ -1247,6 +1331,20 @@ class HelperTest {
     }
 
     @Test
+    void construct_detokenize_request_skips_null_values() {
+        StructType schema = createSchema("name", "email");
+        List<Row> batch = Arrays.asList(
+                createRowWithSchema(schema, null, "tokenA"),
+                createRowWithSchema(schema, "tokenB", null),
+                createRowWithSchema(schema, null, null));
+        COLUMN_MAPPINGS.remove("phone");
+        DetokenizeRequest request = Helper.constructDetokenizeRequest(COLUMN_MAPPINGS, batch);
+
+        assertEquals(2, request.getTokens().size());
+        assertTrue(request.getTokens().containsAll(Arrays.asList("tokenA", "tokenB")));
+    }
+
+    @Test
     public void construct_detokenize_request_skip_mapping_without_token_group_or_redaction() {
         COLUMN_MAPPINGS.remove("email");
         COLUMN_MAPPINGS.remove("phone");
@@ -1339,6 +1437,31 @@ class HelperTest {
         assertEquals("static", outputRow.getString(2));
         assertEquals(Constants.STATUS_OK, outputRow.getString(3));
         assertNull(outputRow.get(4));
+    }
+
+    @Test
+    void replace_tokens_with_data_keeps_null_values() {
+        StructType schema = createSchema("name", "email");
+        Row row = createRowWithSchema(schema, null, "tokenA");
+
+        Map<String, ColumnMapping> mappings = new HashMap<>();
+        mappings.put("name", new ColumnMapping("name_table", "name_column"));
+        mappings.put("email", new ColumnMapping("email_table", "email_column"));
+
+        DetokenizeResponseObject resp = mock(DetokenizeResponseObject.class);
+        when(resp.getValue()).thenReturn("decoded");
+
+        Map<String, DetokenizeResponseObject> successMap = new HashMap<>();
+        successMap.put("tokenA", resp);
+
+        List<Row> outputRows = Helper.replaceTokensWithData(mappings, Collections.singletonList(row), successMap,
+                Collections.emptyMap());
+
+        Row outputRow = outputRows.get(0);
+        assertNull(outputRow.get(0));
+        assertEquals("decoded", outputRow.get(1));
+        assertEquals(Constants.STATUS_OK, outputRow.getString(2));
+        assertNull(outputRow.get(3));
     }
 
     @Test

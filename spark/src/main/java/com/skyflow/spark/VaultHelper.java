@@ -20,6 +20,7 @@ import org.apache.spark.sql.types.StructType;
 
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.Properties;
 import java.util.logging.ConsoleHandler;
@@ -126,34 +127,37 @@ public class VaultHelper {
             int batchNumber = 1;
             // Process data in batches
             for (List<Row> batch : Helper.getBatches(dataToIngest, batchSize)) {
-
+                List<Row> batchOutputRows;
                 // Construct and send insert request
                 InsertRequest insertRequest = Helper.constructInsertRequest(schemaMappings, batch);
-                logger.info(LOG_PREFIX + "Processing batch #" + batchNumber + ", No.of records: "
-                        + insertRequest.getRecords().size());
-                InsertResponse insertResponse = skyflowClient.vault().bulkInsert(insertRequest);
+                if(insertRequest.getRecords().isEmpty()) {
+                    batchOutputRows = Helper.replaceDataWithTokens(schemaMappings, batch, new HashMap<>(), new HashMap<>());
+                } else {
+                    logger.info(LOG_PREFIX + "Processing batch #" + batchNumber + ", No.of records: "
+                            + insertRequest.getRecords().size());
+                    InsertResponse insertResponse = skyflowClient.vault().bulkInsert(insertRequest);
 
-                // Process success and error responses
-                Map<Object, Success> successMap = Helper.getInsertSuccessMap(insertResponse,
-                        insertRequest.getRecords());
-                Map<Object, ErrorRecord> errorsMap = Helper.getInsertErrorsMap(insertResponse,
-                        insertRequest.getRecords());
-                logger.fine(LOG_PREFIX + "Success count: " + successMap.size() + " Error count: " + errorsMap.size());
+                    // Process success and error responses
+                    Map<Object, Success> successMap = Helper.getInsertSuccessMap(insertResponse,
+                            insertRequest.getRecords());
+                    Map<Object, ErrorRecord> errorsMap = Helper.getInsertErrorsMap(insertResponse,
+                            insertRequest.getRecords());
+                    logger.fine(LOG_PREFIX + "Success count: " + successMap.size() + " Error count: " + errorsMap.size());
 
-                // Retry failed records if necessary
-                if (insertResponse.getSummary().getTotalFailed() > 0) {
-                    retryFailedRecords(insertRequest, successMap, errorsMap);
+                    // Retry failed records if necessary
+                    if (insertResponse.getSummary().getTotalFailed() > 0) {
+                        retryFailedRecords(insertRequest, successMap, errorsMap);
+                    }
+                    // Replace data with tokens and add to output rows
+                    batchOutputRows = Helper.replaceDataWithTokens(schemaMappings, batch, successMap, errorsMap);
                 }
-
-                // Replace data with tokens and add to output rows
-                List<Row> batchOutputRows = Helper.replaceDataWithTokens(schemaMappings, batch, successMap, errorsMap);
                 outputRows.addAll(batchOutputRows);
                 batchNumber++;
             }
 
             // Create a DataFrame with the new schema
             Dataset<Row> df = sparkSession.createDataFrame(outputRows, newSchema);
-            logger.info(LOG_PREFIX + PROCESSED_ALL_BATCHES + " Tokenization completed");
+            logger.info(LOG_PREFIX + "Tokenization completed");
             return df;
         } catch (Exception e) {
             throw new SkyflowException(e);
@@ -193,29 +197,34 @@ public class VaultHelper {
 
             // Process data in batches
             for (List<Row> batch : Helper.getBatches(tokenizedData, batchSize)) {
+                List<Row> batchOutputRows;
                 // Construct and send detokenize request
                 DetokenizeRequest detokenizeRequest = Helper.constructDetokenizeRequest(schemaMappings, batch);
-                logger.info(LOG_PREFIX + "Processing batch #" + batchNumber + ", No.of records: "
-                        + detokenizeRequest.getTokens().size());
-                DetokenizeResponse detokenizeResponse = skyflowClient.vault().bulkDetokenize(detokenizeRequest);
+                if(detokenizeRequest.getTokens().isEmpty()) {
+                    batchOutputRows = Helper.replaceTokensWithData(schemaMappings, batch, new HashMap<>(), new HashMap<>());
+                } else {
+                    logger.info(LOG_PREFIX + "Processing batch #" + batchNumber + ", No.of records: "
+                            + detokenizeRequest.getTokens().size());
+                    DetokenizeResponse detokenizeResponse = skyflowClient.vault().bulkDetokenize(detokenizeRequest);
 
-                // Process success and error responses
-                Map<String, DetokenizeResponseObject> successMap = Helper.getDetokenizeSuccessMap(detokenizeResponse);
-                Map<String, ErrorRecord> errorsMap = Helper.geDetokenizeErrorsMap(detokenizeResponse,
-                        detokenizeRequest.getTokens());
-                logger.fine(LOG_PREFIX + "Success count: " + successMap.size() + " Error count: " + errorsMap.size());
-                // Retry failed tokens if necessary
-                if (detokenizeResponse.getSummary().getTotalFailed() > 0) {
-                    retryFailedTokens(detokenizeRequest, successMap, errorsMap);
+                    // Process success and error responses
+                    Map<String, DetokenizeResponseObject> successMap = Helper.getDetokenizeSuccessMap(detokenizeResponse);
+                    Map<String, ErrorRecord> errorsMap = Helper.geDetokenizeErrorsMap(detokenizeResponse,
+                            detokenizeRequest.getTokens());
+                    logger.fine(LOG_PREFIX + "Success count: " + successMap.size() + " Error count: " + errorsMap.size());
+                    // Retry failed tokens if necessary
+                    if (detokenizeResponse.getSummary().getTotalFailed() > 0) {
+                        retryFailedTokens(detokenizeRequest, successMap, errorsMap);
+                    }
+                    // Replace tokens with data and add to output rows
+                    batchOutputRows = Helper.replaceTokensWithData(schemaMappings, batch, successMap, errorsMap);
                 }
-                // Replace tokens with data and add to output rows
-                List<Row> batchOutputRows = Helper.replaceTokensWithData(schemaMappings, batch, successMap, errorsMap);
                 outputRows.addAll(batchOutputRows);
                 batchNumber++;
             }
             // Create a DataFrame with the new schema
             Dataset<Row> df = sparkSession.createDataFrame(outputRows, newSchema);
-            logger.info(LOG_PREFIX + PROCESSED_ALL_BATCHES + " Detokenization completed");
+            logger.info(LOG_PREFIX + "Detokenization completed");
             return df;
         } catch (Exception e) {
             throw new SkyflowException(e);
