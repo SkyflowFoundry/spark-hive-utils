@@ -929,6 +929,31 @@ class VaultHelperTest {
     }
 
     @Test
+    void tokenize_skips_bulk_insert_when_request_has_no_records() throws SkyflowException {
+        mockInitializeSkyflowClientForTest();
+
+        Dataset<Row> data = spark.createDataFrame(Arrays.asList(
+                RowFactory.create(null, "123"),
+                RowFactory.create(null, null)), sampleSchema);
+
+        Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, firstNameOnlyColumnMapping());
+
+        verify(vaultMock, times(0)).bulkInsert(any());
+
+        List<Row> rows = result.collectAsList();
+        assertEquals(2, rows.size());
+        assertNull(rows.get(0).getAs("first_nm"));
+        assertEquals("123", rows.get(0).getAs("ph_nbr"));
+        assertEquals(Constants.STATUS_OK, rows.get(0).getAs(Constants.SKYFLOW_STATUS_CODE));
+        assertNull(rows.get(0).getAs(Constants.ERROR));
+
+        assertNull(rows.get(1).getAs("first_nm"));
+        assertNull(rows.get(1).getAs("ph_nbr"));
+        assertEquals(Constants.STATUS_OK, rows.get(1).getAs(Constants.SKYFLOW_STATUS_CODE));
+        assertNull(rows.get(1).getAs(Constants.ERROR));
+    }
+
+    @Test
     void detokenize_empty_dataset() throws SkyflowException {
         mockInitializeSkyflowClientForTest();
 
@@ -940,6 +965,31 @@ class VaultHelperTest {
         assertEquals(0, result.count());
 
         verify(vaultMock, times(0)).bulkDetokenize(any());
+    }
+
+    @Test
+    void detokenize_skips_bulk_detokenize_when_request_has_no_tokens() throws SkyflowException {
+        mockInitializeSkyflowClientForTest();
+
+        Dataset<Row> tokenizedData = spark.createDataFrame(Arrays.asList(
+                RowFactory.create(null, "token-1"),
+                RowFactory.create(null, null)), sampleSchema);
+
+        Dataset<Row> result = vaultHelper.detokenize(tableHelperMock, tokenizedData, firstNameOnlyColumnMapping());
+
+        verify(vaultMock, times(0)).bulkDetokenize(any());
+
+        List<Row> rows = result.collectAsList();
+        assertEquals(2, rows.size());
+        assertNull(rows.get(0).getAs("first_nm"));
+        assertEquals("token-1", rows.get(0).getAs("ph_nbr"));
+        assertEquals(Constants.STATUS_OK, rows.get(0).getAs(Constants.SKYFLOW_STATUS_CODE));
+        assertNull(rows.get(0).getAs(Constants.ERROR));
+
+        assertNull(rows.get(1).getAs("first_nm"));
+        assertNull(rows.get(1).getAs("ph_nbr"));
+        assertEquals(Constants.STATUS_OK, rows.get(1).getAs(Constants.SKYFLOW_STATUS_CODE));
+        assertNull(rows.get(1).getAs(Constants.ERROR));
     }
 
     @Test

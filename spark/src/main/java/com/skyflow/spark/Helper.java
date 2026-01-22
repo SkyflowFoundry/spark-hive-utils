@@ -174,6 +174,10 @@ public class Helper {
 
             Object value = row.getAs(datasetColumn);
 
+            if (value == null) {
+                continue;
+            }
+
             // Initialize per table + vault column
             seenValues.computeIfAbsent(tableName, k -> new HashMap<>());
             seenValues.get(tableName).computeIfAbsent(vaultColumn, k -> new HashSet<>());
@@ -239,7 +243,7 @@ public class Helper {
             for (String field : row.schema().fieldNames()) {
                 ColumnMapping skyflowColumnMapping = schemaMappings.get(field);
                 Object value = row.getAs(field);
-                if (skyflowColumnMapping != null) {
+                if (skyflowColumnMapping != null && value != null) {
                     // key would be value + tableName
                     String key = concatWithUnderscore(skyflowColumnMapping.getTableName(), value);
                     if (successMap.containsKey(key)) {
@@ -262,7 +266,7 @@ public class Helper {
                         break;
                     }
                 } else {
-                    // Not a tokenizable value, no column mapping found, copying as is
+                    // Not a tokenizable value, no column mapping found or null value copying as is
                     rowData.add(value);
                 }
             }
@@ -374,6 +378,9 @@ public class Helper {
         Set<String> tokens = new HashSet<>();
         for (Row row : batch) {
             for (Map.Entry<String, ColumnMapping> mapping : schemaMappings.entrySet()) {
+                if (row.getAs(mapping.getKey()) == null) {
+                    continue;
+                }
                 tokens.add(row.getAs(mapping.getKey()));
             }
         }
@@ -426,7 +433,7 @@ public class Helper {
                 ColumnMapping skyflowColumnMapping = schemaMappings.get(field);
                 Object cell = row.getAs(field);
 
-                if (skyflowColumnMapping != null) {
+                if (skyflowColumnMapping != null && cell != null) {
                     if (cell instanceof String) {
                         if (successMap.containsKey(cell)) {
                             // This field is expected to be detokenized
@@ -448,7 +455,7 @@ public class Helper {
                         rowData.add(cell);
                     }
                 } else {
-                    // Not a token, no column mapping found, copying as is
+                    // Not a token, no column mapping found or null value copying as is
                     rowData.add(cell);
                 }
             }

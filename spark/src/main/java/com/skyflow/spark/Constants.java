@@ -31,7 +31,6 @@ public class Constants {
     public static final String ERROR = "error";
     public static final String DETOKENIZE_FAILED = "Detokenization failed";
     public static final String NO_RETRIES_NEEDED_PROCEEDING = "No retryable records found, no retries needed — proceeding";
-    public static final String PROCESSED_ALL_BATCHES = "Processed all the batches.";
     public static final String INSERT_FAILED = "Insert failed";
 
 }
