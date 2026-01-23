@@ -579,8 +579,8 @@ class VaultHelperTest {
                 rows.get(2).getAs("skyflow_status_code")));
 
         assertTrue(
-                statuses.contains("200") && statuses.contains("500"),
-                "Statuses should contain both 200 and 500");
+                statuses.contains("200") && statuses.contains("503"),
+                "Statuses should contain both 200 and 503");
 
         // Verify bulkInsert called 3 times (initial + 2 retries)
         verify(vaultMock, times(3)).bulkInsert(any());
@@ -631,10 +631,10 @@ class VaultHelperTest {
         assertEquals("200", rows.get(0).getAs("skyflow_status_code"));
 
         assertEquals("Alice", rows.get(1).getAs("first_nm"));
-        assertEquals("500", rows.get(1).getAs("skyflow_status_code"));
+        assertEquals("400", rows.get(1).getAs("skyflow_status_code"));
 
         assertEquals("Bob", rows.get(2).getAs("first_nm"));
-        assertEquals("500", rows.get(2).getAs("skyflow_status_code"));
+        assertEquals("400", rows.get(2).getAs("skyflow_status_code"));
 
         // Verify bulkInsert called 3 times (initial + 2 retries)
         verify(vaultMock, times(1)).bulkInsert(any());
@@ -852,7 +852,7 @@ class VaultHelperTest {
         assertEquals("John", rows.get(0).getAs("first_nm"));
         assertEquals("200", rows.get(0).getAs("skyflow_status_code"));
         assertEquals("token2", rows.get(1).getAs("first_nm"));
-        assertEquals("500", rows.get(1).getAs("skyflow_status_code"));
+        assertEquals("503", rows.get(1).getAs("skyflow_status_code"));
         assertEquals("Bob", rows.get(2).getAs("first_nm"));
 
         verify(vaultMock, times(3)).bulkDetokenize(any());
@@ -882,11 +882,11 @@ class VaultHelperTest {
 
         ErrorRecord err1 = mock(ErrorRecord.class);
         when(err1.getIndex()).thenReturn(0);
-        when(err1.getCode()).thenReturn(404); // retryable
+        when(err1.getCode()).thenReturn(404); // non retryable
 
         ErrorRecord err2 = mock(ErrorRecord.class);
         when(err2.getIndex()).thenReturn(1);
-        when(err2.getCode()).thenReturn(404); // retryable
+        when(err2.getCode()).thenReturn(404); // non retryable
 
         DetokenizeSummary summaryInitial = mock(DetokenizeSummary.class);
         when(summaryInitial.getTotalFailed()).thenReturn(2);
@@ -906,7 +906,7 @@ class VaultHelperTest {
         assertEquals(3, rows.size());
 
         assertEquals("token0", rows.get(0).getAs("first_nm"));
-        assertEquals("500", rows.get(0).getAs("skyflow_status_code"));
+        assertEquals("404", rows.get(0).getAs("skyflow_status_code"));
         assertEquals("John", rows.get(1).getAs("first_nm"));
         assertEquals("200", rows.get(1).getAs("skyflow_status_code"));
         assertEquals("Bob", rows.get(2).getAs("first_nm"));
@@ -1157,7 +1157,7 @@ class VaultHelperTest {
             // Original data preserved
             assertEquals(data.collectAsList().get(i).getAs("first_nm").toString(), rows.get(i).getAs("first_nm"));
             // Status code 500 and error present for failures
-            assertEquals("500", rows.get(i).getAs("skyflow_status_code"));
+            assertEquals("503", rows.get(i).getAs("skyflow_status_code"));
             assertNotNull(rows.get(i).getAs("error"));
         }
 
@@ -1271,7 +1271,7 @@ class VaultHelperTest {
             assertEquals(tokenizedData.collectAsList().get(i).getAs("first_nm").toString(),
                     rows.get(i).getAs("first_nm"));
             // Status code 500 and error present for failures
-            assertEquals("500", rows.get(i).getAs("skyflow_status_code"));
+            assertEquals("503", rows.get(i).getAs("skyflow_status_code"));
             assertNotNull(rows.get(i).getAs("error"));
         }
 
@@ -1316,9 +1316,9 @@ class VaultHelperTest {
 
         // All rows should fail
         assertEquals(3, rows.size());
-        assertEquals("500", rows.get(0).getAs("skyflow_status_code"));
-        assertEquals("500", rows.get(1).getAs("skyflow_status_code"));
-        assertEquals("500", rows.get(2).getAs("skyflow_status_code"));
+        assertEquals("400", rows.get(0).getAs("skyflow_status_code"));
+        assertEquals("400", rows.get(1).getAs("skyflow_status_code"));
+        assertEquals("400", rows.get(2).getAs("skyflow_status_code"));
         assertEquals("Bad Request", rows.get(0).getAs("error"));
         assertEquals("Unique constraint failed", rows.get(1).getAs("error"));
         assertEquals("Column not found", rows.get(2).getAs("error"));
@@ -1362,8 +1362,8 @@ class VaultHelperTest {
 
         // All rows should fail
         assertEquals(3, rows.size());
-        assertEquals("500", rows.get(0).getAs("skyflow_status_code"));
-        assertEquals("500", rows.get(1).getAs("skyflow_status_code"));
+        assertEquals("400", rows.get(0).getAs("skyflow_status_code"));
+        assertEquals("400", rows.get(1).getAs("skyflow_status_code"));
 
         // Verify no retries occurred
         verify(vaultMock, times(1)).bulkDetokenize(any());

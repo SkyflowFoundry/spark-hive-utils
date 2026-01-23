@@ -1079,11 +1079,12 @@ class HelperTest {
         StructType schema = createSchema("phone");
         Row row = createRowWithSchema(schema, 123);
         ErrorRecord errorRecord = mock(ErrorRecord.class);
+        when(errorRecord.getCode()).thenReturn(400);
         when(errorRecord.getError()).thenReturn("Bad Request");
         Map<Object, ErrorRecord> errorsMap = Collections.singletonMap("phone_123", errorRecord);
         List<Row> out = Helper.replaceDataWithTokens(COLUMN_MAPPINGS, Collections.singletonList(row), new HashMap<>(),
                 errorsMap);
-        assertEquals("500", out.get(0).getString(1));
+        assertEquals("400", out.get(0).getString(1));
         assertEquals("Bad Request", out.get(0).getString(2));
     }
 
@@ -1473,6 +1474,7 @@ class HelperTest {
         Map<String, DetokenizeResponseObject> successMap = new HashMap<>();
         Map<String, ErrorRecord> errorsMap = new HashMap<>();
         ErrorRecord errorRecord = mock(ErrorRecord.class);
+        when(errorRecord.getCode()).thenReturn(404);
         when(errorRecord.getError()).thenReturn("Token not found");
         errorsMap.put("token1", errorRecord);
 
@@ -1483,7 +1485,7 @@ class HelperTest {
         Row outputRow = outputRows.get(0);
 
         assertEquals("token1", outputRow.getString(0));
-        assertEquals(Constants.STATUS_ERROR, outputRow.getString(1));
+        assertEquals("404", outputRow.getString(1));
         assertEquals("Token not found", outputRow.getString(2));
     }
 
