@@ -239,7 +239,7 @@ public class Helper {
         for (Row row : batch) {
             List<Object> rowData = new ArrayList<>();
             boolean hasFailure = false;
-            String error = INSERT_FAILED;
+            ErrorRecord errorRecord = new ErrorRecord(0, INSERT_FAILED, 500);
             for (String field : row.schema().fieldNames()) {
                 ColumnMapping skyflowColumnMapping = schemaMappings.get(field);
                 Object value = row.getAs(field);
@@ -258,7 +258,7 @@ public class Helper {
                     } else if (errorsMap.containsKey(key)) {
                         // If tokenization failed for this value, failing row
                         hasFailure = true;
-                        error = errorsMap.get(key).getError();
+                        errorRecord = errorsMap.get(key);
                         break;
                     } else {
                         // Token not present in either map — treat as failure, failing row
@@ -271,7 +271,7 @@ public class Helper {
                 }
             }
             if (hasFailure) {
-                rowData = populateErrorRow(row, error);
+                rowData = populateErrorRow(row, errorRecord);
             } else {
                 rowData.add(Constants.STATUS_OK);
                 rowData.add(null);
@@ -303,10 +303,10 @@ public class Helper {
     }
 
     // Build a row containing original values plus error status and message.
-    private static List<Object> populateErrorRow(Row in, String error) {
+    private static List<Object> populateErrorRow(Row in, ErrorRecord error) {
         List<Object> rowData = copyRowData(in);
-        rowData.add(Constants.STATUS_ERROR);
-        rowData.add(error);
+        rowData.add(String.valueOf(error.getCode()));
+        rowData.add(error.getError());
         return rowData;
     }
 
@@ -428,7 +428,7 @@ public class Helper {
         for (Row row : batch) {
             List<Object> rowData = new ArrayList<>();
             boolean hasFailure = false;
-            String error = DETOKENIZE_FAILED;
+            ErrorRecord errorRecord = new ErrorRecord(0, DETOKENIZE_FAILED, 500);
             for (String field : row.schema().fieldNames()) {
                 ColumnMapping skyflowColumnMapping = schemaMappings.get(field);
                 Object cell = row.getAs(field);
@@ -441,7 +441,7 @@ public class Helper {
                         } else if (errorsMap.containsKey(cell)) {
                             // If detokenization failed for this token
                             rowData.add(cell); // keep original token
-                            error = errorsMap.get(cell).getError();
+                            errorRecord = errorsMap.get(cell);
                             hasFailure = true;
                         } else {
                             // Token not present in either map — treat as failure
@@ -460,8 +460,8 @@ public class Helper {
                 }
             }
             if (hasFailure) {
-                rowData.add(Constants.STATUS_ERROR);
-                rowData.add(error);
+                rowData.add(String.valueOf(errorRecord.getCode()));
+                rowData.add(errorRecord.getError());
             } else {
                 rowData.add(Constants.STATUS_OK);
                 rowData.add(null);
