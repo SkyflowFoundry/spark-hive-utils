@@ -213,6 +213,11 @@ public class VaultHelper {
                     Map<String, ErrorRecord> errorsMap = Helper.getDetokenizeErrorsMap(detokenizeResponse,
                             detokenizeRequest.getTokens());
                     logger.fine(LOG_PREFIX + "Success count: " + successMap.size() + " Error count: " + errorsMap.size());
+                    if (successMap.size() + errorsMap.size() != detokenizeRequest.getTokens().size()) {
+                        logger.warning(LOG_PREFIX + "Detokenize response accounted for "
+                                + (successMap.size() + errorsMap.size()) + " of " + detokenizeRequest.getTokens().size()
+                                + " requested tokens; some tokens got no response entry.");
+                    }
                     // Retry failed tokens if necessary
                     if (detokenizeResponse.getSummary().getTotalFailed() > 0) {
                         retryFailedTokens(detokenizeRequest, successMap, errorsMap);
@@ -284,6 +289,13 @@ public class VaultHelper {
                 Helper.mergeDetokenizeRetryResults(retryResponse, retryableTokens, successMap, errorsMap);
                 logger.fine(LOG_PREFIX + "After retry, Success count: " + successMap.size() + " Error count: "
                         + errorsMap.size());
+                long unaccountedForTokens = retryableTokens.stream()
+                        .filter(token -> !successMap.containsKey(token) && !errorsMap.containsKey(token))
+                        .count();
+                if (unaccountedForTokens > 0) {
+                    logger.warning(LOG_PREFIX + unaccountedForTokens + " of " + retryableTokens.size()
+                            + " retried tokens got no response entry (success or error) after this retry.");
+                }
                 currentRetry++;
             }
         }
