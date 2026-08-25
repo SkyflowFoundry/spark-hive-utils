@@ -1386,14 +1386,15 @@ class HelperTest {
     void get_detokenize_errors_map() {
         BulkDetokenizeResponseRecord error = mock(BulkDetokenizeResponseRecord.class);
         when(error.getIndex()).thenReturn(0);
-        when(error.getToken()).thenReturn("token1");
         when(error.getError()).thenReturn("Token not found");
         when(error.getHttpCode()).thenReturn(404);
 
         BulkDetokenizeResponse detokenizeResponse = mock(BulkDetokenizeResponse.class);
         when(detokenizeResponse.getRecords()).thenReturn(Collections.singletonList(error));
 
-        Map<String, ErrorRecord> errorMap = Helper.getDetokenizeErrorsMap(detokenizeResponse);
+        List<String> tokens = Collections.singletonList("token1");
+
+        Map<String, ErrorRecord> errorMap = Helper.getDetokenizeErrorsMap(detokenizeResponse, tokens);
 
         assertEquals(1, errorMap.size());
         assertTrue(errorMap.containsKey("token1"));

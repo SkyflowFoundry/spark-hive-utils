@@ -210,7 +210,8 @@ public class VaultHelper {
 
                     // Process success and error responses
                     Map<String, BulkDetokenizeResponseRecord> successMap = Helper.getDetokenizeSuccessMap(detokenizeResponse);
-                    Map<String, ErrorRecord> errorsMap = Helper.getDetokenizeErrorsMap(detokenizeResponse);
+                    Map<String, ErrorRecord> errorsMap = Helper.getDetokenizeErrorsMap(detokenizeResponse,
+                            detokenizeRequest.getTokens());
                     logger.fine(LOG_PREFIX + "Success count: " + successMap.size() + " Error count: " + errorsMap.size());
                     // Retry failed tokens if necessary
                     if (detokenizeResponse.getSummary().getTotalFailed() > 0) {
@@ -280,7 +281,7 @@ public class VaultHelper {
                 BulkDetokenizeResponse retryResponse = skyflowClient.vault()
                         .bulkDetokenize(BulkDetokenizeRequest.builder().tokens(retryableTokens)
                                 .tokenGroupRedactions(detokenizeRequest.getTokenGroupRedactions()).build());
-                Helper.mergeDetokenizeRetryResults(retryResponse, successMap, errorsMap);
+                Helper.mergeDetokenizeRetryResults(retryResponse, retryableTokens, successMap, errorsMap);
                 logger.fine(LOG_PREFIX + "After retry, Success count: " + successMap.size() + " Error count: "
                         + errorsMap.size());
                 currentRetry++;

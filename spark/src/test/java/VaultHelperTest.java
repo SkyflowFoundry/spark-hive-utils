@@ -227,9 +227,11 @@ class VaultHelperTest {
         return record;
     }
 
-    private BulkDetokenizeResponseRecord mockDetokenizeError(String token, int httpCode, String error) {
+    // index must match the token's position in the actual request's token list, since
+    // getDetokenizeErrorsMap keys failures by index into that list (see Helper.java).
+    private BulkDetokenizeResponseRecord mockDetokenizeError(int index, int httpCode, String error) {
         BulkDetokenizeResponseRecord record = mock(BulkDetokenizeResponseRecord.class);
-        when(record.getToken()).thenReturn(token);
+        when(record.getIndex()).thenReturn(index);
         when(record.getHttpCode()).thenReturn(httpCode);
         when(record.getError()).thenReturn(error != null ? error : "error");
         return record;
@@ -801,7 +803,7 @@ class VaultHelperTest {
         // token0 and token4 succeed immediately; token2 keeps failing through both retries.
         BulkDetokenizeResponseRecord resp0 = mockDetokenizeSuccess("token0", "John");
         BulkDetokenizeResponseRecord resp2 = mockDetokenizeSuccess("token4", "Bob");
-        BulkDetokenizeResponseRecord err1 = mockDetokenizeError("token2", 503, "Service unavailable"); // retryable
+        BulkDetokenizeResponseRecord err1 = mockDetokenizeError(1, 503, "Service unavailable"); // retryable
 
         DetokenizeSummary summaryInitial = mock(DetokenizeSummary.class);
         when(summaryInitial.getTotalFailed()).thenReturn(1);
@@ -809,8 +811,8 @@ class VaultHelperTest {
         when(detokenizeResponseMock.getRecords()).thenReturn(Arrays.asList(resp0, resp2, err1));
         when(detokenizeResponseMock.getSummary()).thenReturn(summaryInitial);
 
-        // Retry 1: token2 still failing
-        BulkDetokenizeResponseRecord retryErr2 = mockDetokenizeError("token2", 503, "Service unavailable");
+        // Retry 1: token2 still failing (sole entry in this round's request, so index 0)
+        BulkDetokenizeResponseRecord retryErr2 = mockDetokenizeError(0, 503, "Service unavailable");
 
         DetokenizeSummary summaryRetry1 = mock(DetokenizeSummary.class);
         when(summaryRetry1.getTotalFailed()).thenReturn(1);
@@ -819,8 +821,8 @@ class VaultHelperTest {
         when(retryResponse1.getRecords()).thenReturn(Collections.singletonList(retryErr2));
         when(retryResponse1.getSummary()).thenReturn(summaryRetry1);
 
-        // Retry 2: token2 still failing (retries exhausted)
-        BulkDetokenizeResponseRecord retryErr3 = mockDetokenizeError("token2", 503, "Service unavailable");
+        // Retry 2: token2 still failing (retries exhausted; again the sole entry, index 0)
+        BulkDetokenizeResponseRecord retryErr3 = mockDetokenizeError(0, 503, "Service unavailable");
 
         DetokenizeSummary summaryRetry2 = mock(DetokenizeSummary.class);
         when(summaryRetry2.getTotalFailed()).thenReturn(1);
@@ -860,7 +862,7 @@ class VaultHelperTest {
         // token2 and token4 succeed; token0 fails with a non-retryable error.
         BulkDetokenizeResponseRecord resp1 = mockDetokenizeSuccess("token2", "John");
         BulkDetokenizeResponseRecord resp2 = mockDetokenizeSuccess("token4", "Bob");
-        BulkDetokenizeResponseRecord err1 = mockDetokenizeError("token0", 404, "Not Found"); // non retryable
+        BulkDetokenizeResponseRecord err1 = mockDetokenizeError(0, 404, "Not Found"); // non retryable
 
         DetokenizeSummary summaryInitial = mock(DetokenizeSummary.class);
         when(summaryInitial.getTotalFailed()).thenReturn(1);
@@ -1123,7 +1125,7 @@ class VaultHelperTest {
         // Initial response: all failed retryable errors
         List<BulkDetokenizeResponseRecord> initialErrors = new ArrayList<>();
         for (int i = 0; i < 6; i++) {
-            initialErrors.add(mockDetokenizeError("token" + i, 503, "Service unavailable"));
+            initialErrors.add(mockDetokenizeError(i, 503, "Service unavailable"));
         }
         DetokenizeSummary initialSummary = mock(DetokenizeSummary.class);
         when(initialSummary.getTotalFailed()).thenReturn(6);
@@ -1170,7 +1172,7 @@ class VaultHelperTest {
         // Initial response: all failed retryable errors
         List<BulkDetokenizeResponseRecord> initialErrors = new ArrayList<>();
         for (int i = 0; i < 6; i++) {
-            initialErrors.add(mockDetokenizeError("token" + i, 503, "Token not found"));
+            initialErrors.add(mockDetokenizeError(i, 503, "Token not found"));
         }
         DetokenizeSummary initialSummary = mock(DetokenizeSummary.class);
         when(initialSummary.getTotalFailed()).thenReturn(3);
@@ -1181,7 +1183,7 @@ class VaultHelperTest {
         // Retry 1: all retryable failed again
         List<BulkDetokenizeResponseRecord> retryErrors = new ArrayList<>();
         for (int i = 0; i < 6; i++) {
-            retryErrors.add(mockDetokenizeError("token" + i, 503, "Token not found"));
+            retryErrors.add(mockDetokenizeError(i, 503, "Token not found"));
         }
         DetokenizeSummary retrySummary = mock(DetokenizeSummary.class);
         when(retrySummary.getTotalFailed()).thenReturn(3);
@@ -1256,9 +1258,9 @@ class VaultHelperTest {
         Dataset<Row> tokenizedData = createSampleTokenizedDataset();
 
         // Only "first_nm" is mapped, so the request contains token0, token2, token4 — all fail.
-        BulkDetokenizeResponseRecord err1 = mockDetokenizeError("token0", 400, "Bad Request"); // Non-retryable
-        BulkDetokenizeResponseRecord err2 = mockDetokenizeError("token2", 400, "Bad Request"); // Non-retryable
-        BulkDetokenizeResponseRecord err3 = mockDetokenizeError("token4", 400, "Bad Request"); // Non-retryable
+        BulkDetokenizeResponseRecord err1 = mockDetokenizeError(0, 400, "Bad Request"); // Non-retryable
+        BulkDetokenizeResponseRecord err2 = mockDetokenizeError(1, 400, "Bad Request"); // Non-retryable
+        BulkDetokenizeResponseRecord err3 = mockDetokenizeError(2, 400, "Bad Request"); // Non-retryable
 
         DetokenizeSummary summary = mock(DetokenizeSummary.class);
         when(summary.getTotalFailed()).thenReturn(3);
@@ -1333,7 +1335,7 @@ class VaultHelperTest {
         // Only "first_nm" is mapped, so the request contains token0, token2, token4.
         // Initial response: token0 succeeds, token2 fails with a retryable error.
         BulkDetokenizeResponseRecord resp0 = mockDetokenizeSuccess("token0", "John");
-        BulkDetokenizeResponseRecord error1 = mockDetokenizeError("token2", 503, "Service unavailable"); // Retryable
+        BulkDetokenizeResponseRecord error1 = mockDetokenizeError(1, 503, "Service unavailable"); // Retryable
 
         DetokenizeSummary summaryInitial = mock(DetokenizeSummary.class);
         when(summaryInitial.getTotalFailed()).thenReturn(1);

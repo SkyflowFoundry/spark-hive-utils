@@ -356,16 +356,28 @@ public class Helper {
             BulkInsertResponse retryResponse,
             Map<Object, BulkInsertResponseRecord> successMap,
             Map<Object, ErrorRecord> errorsMap) {
-        List<InsertRequestRecord> retryRecords = new ArrayList<>(records);
+        ArrayList<InsertRequestRecord> retryRecords = new ArrayList<>(records);
         Map<Object, BulkInsertResponseRecord> retrySuccessMap = getInsertSuccessMap(
                 retryResponse, retryRecords);
         Map<Object, ErrorRecord> retryErrorsMap = getInsertErrorsMap(
                 retryResponse, retryRecords);
-        for (Map.Entry<Object, BulkInsertResponseRecord> entry : retrySuccessMap.entrySet()) {
-            successMap.put(entry.getKey(), entry.getValue());
-            errorsMap.remove(entry.getKey());
+        for (BulkInsertResponseRecord success : retrySuccessMap.values()) {
+            InsertRequestRecord record = retryRecords.get(success.getIndex());
+            // Get the only value from the record
+            Object value = record.getData().values().iterator().next();
+            // key also includes table name, as we are deduping per table
+            String key = concatWithUnderscore(record.getTableName(), value);
+            successMap.put(key, success);
+            errorsMap.remove(key);
         }
-        errorsMap.putAll(retryErrorsMap);
+        for (ErrorRecord errorRecord : retryErrorsMap.values()) {
+            InsertRequestRecord record = retryRecords.get(errorRecord.getIndex());
+            // Get the only value from the record
+            Object value = record.getData().values().iterator().next();
+            // key also includes table name, as we are deduping per table
+            String key = concatWithUnderscore(record.getTableName(), value);
+            errorsMap.put(key, errorRecord);
+        }
         logger.fine(LOG_PREFIX + "Merged " + retrySuccessMap.size() + " success entries and " + retryErrorsMap.size()
                 + " error entries.");
     }
@@ -412,11 +424,12 @@ public class Helper {
     }
 
     // Converts BulkDetokenizeResponse records into an error map for quick lookup
-    public static Map<String, ErrorRecord> getDetokenizeErrorsMap(BulkDetokenizeResponse detokenizeResponse) {
+    public static Map<String, ErrorRecord> getDetokenizeErrorsMap(BulkDetokenizeResponse detokenizeResponse,
+            List<String> tokens) {
         Map<String, ErrorRecord> errorsMap = new HashMap<>();
         for (BulkDetokenizeResponseRecord record : detokenizeResponse.getRecords()) {
             if (record.getError() != null) {
-                errorsMap.put(record.getToken(), new ErrorRecord(record.getIndex(), record.getError(), record.getHttpCode()));
+                errorsMap.put(tokens.get(record.getIndex()), new ErrorRecord(record.getIndex(), record.getError(), record.getHttpCode()));
             }
         }
         return errorsMap;
@@ -480,15 +493,18 @@ public class Helper {
 
     // Merges retry results into the original success and error maps for
     // detokenization operations
-    public static void mergeDetokenizeRetryResults(BulkDetokenizeResponse detokenizeResponse,
+    public static void mergeDetokenizeRetryResults(BulkDetokenizeResponse detokenizeResponse, List<String> tokens,
             Map<String, BulkDetokenizeResponseRecord> successMap, Map<String, ErrorRecord> errorsMap) {
         Map<String, BulkDetokenizeResponseRecord> retrySuccessMap = getDetokenizeSuccessMap(detokenizeResponse);
-        Map<String, ErrorRecord> retryErrorsMap = getDetokenizeErrorsMap(detokenizeResponse);
-        for (Map.Entry<String, BulkDetokenizeResponseRecord> entry : retrySuccessMap.entrySet()) {
-            successMap.put(entry.getKey(), entry.getValue());
-            errorsMap.remove(entry.getKey());
+        Map<String, ErrorRecord> retryErrorsMap = getDetokenizeErrorsMap(detokenizeResponse, tokens);
+        for (BulkDetokenizeResponseRecord record : retrySuccessMap.values()) {
+            String token = record.getToken();
+            successMap.put(token, record);
+            errorsMap.remove(token);
         }
-        errorsMap.putAll(retryErrorsMap);
+        for (ErrorRecord errorRecord : retryErrorsMap.values()) {
+            errorsMap.put(tokens.get(errorRecord.getIndex()), errorRecord);
+        }
         logger.fine(LOG_PREFIX + "Merged " + retrySuccessMap.size() + " success entries and " + retryErrorsMap.size()
                 + " error entries.");
     }
