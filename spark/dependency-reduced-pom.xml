@@ -74,7 +74,7 @@
               </filters>
               <artifactSet>
                 <includes>
-                  <include>com.skyflow:skyflow-java</include>
+                  <include>com.skyflow:skyflow-flowvault-java</include>
                 </includes>
               </artifactSet>
               <createDependencyReducedPom>true</createDependencyReducedPom>

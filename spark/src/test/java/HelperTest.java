@@ -10,14 +10,15 @@ import com.skyflow.spark.ColumnMapping;
 import com.skyflow.spark.Constants;
 
 import com.skyflow.vault.data.ErrorRecord;
-import com.skyflow.vault.data.InsertResponse;
-import com.skyflow.vault.data.InsertRequest;
-import com.skyflow.vault.data.InsertRecord;
-import com.skyflow.vault.data.DetokenizeRequest;
-import com.skyflow.vault.data.DetokenizeResponse;
-import com.skyflow.vault.data.DetokenizeResponseObject;
+import com.skyflow.vault.data.BulkInsertRequest;
+import com.skyflow.vault.data.BulkInsertResponse;
+import com.skyflow.vault.data.BulkInsertResponseRecord;
+import com.skyflow.vault.data.InsertRequestRecord;
+import com.skyflow.vault.data.InsertResponseRecord;
+import com.skyflow.vault.data.BulkDetokenizeRequest;
+import com.skyflow.vault.data.BulkDetokenizeResponse;
+import com.skyflow.vault.data.BulkDetokenizeResponseRecord;
 import com.skyflow.vault.data.TokenGroupRedactions;
-import com.skyflow.vault.data.Success;
 import com.skyflow.vault.data.Token;
 import com.skyflow.errors.SkyflowException;
 
@@ -265,18 +266,18 @@ class HelperTest {
         defaultUniqueProps.setProperty(Constants.COLUMN_MAPPING,
                 "{\"name\": {\"tableName\": \"customer_table\", \"columnName\": \"customer_name\"}}");
         Map<String, ColumnMapping> defaultMappings = Helper.configureColumnMappings(schema, defaultUniqueProps);
-        InsertRequest defaultRequest = Helper.constructInsertRequest(defaultMappings, Collections.singletonList(row));
-        InsertRecord defaultRecord = defaultRequest.getRecords().get(0);
-        assertNotNull(defaultRecord.getUpsert(), "Default unique should populate upsert list");
-        assertEquals(Collections.singletonList("customer_name"), defaultRecord.getUpsert());
+        BulkInsertRequest defaultRequest = Helper.constructInsertRequest(defaultMappings, Collections.singletonList(row));
+        InsertRequestRecord defaultRecord = defaultRequest.getRecords().get(0);
+        assertNotNull(defaultRecord.getUpsert(), "Default unique should populate upsert options");
+        assertEquals(Collections.singletonList("customer_name"), defaultRecord.getUpsert().getUniqueColumns());
 
         Properties nonUniqueProps = new Properties();
         nonUniqueProps.setProperty(Constants.COLUMN_MAPPING,
                 "{\"name\": {\"tableName\": \"customer_table\", \"columnName\": \"customer_name\", \"unique\": \"false\"}}");
         Map<String, ColumnMapping> nonUniqueMappings = Helper.configureColumnMappings(schema, nonUniqueProps);
-        InsertRequest nonUniqueRequest = Helper.constructInsertRequest(nonUniqueMappings, Collections.singletonList(row));
-        InsertRecord nonUniqueRecord = nonUniqueRequest.getRecords().get(0);
-        assertNull(nonUniqueRecord.getUpsert(), "Non-unique columns should not populate upsert list");
+        BulkInsertRequest nonUniqueRequest = Helper.constructInsertRequest(nonUniqueMappings, Collections.singletonList(row));
+        InsertRequestRecord nonUniqueRecord = nonUniqueRequest.getRecords().get(0);
+        assertNull(nonUniqueRecord.getUpsert(), "Non-unique columns should not populate upsert options");
     }
 
     // endregion Column mapping configuration tests
@@ -475,33 +476,33 @@ class HelperTest {
 
     @Test
     void get_insert_success_map_uses_value_and_table_name_as_key() {
-        ArrayList<InsertRecord> records = new ArrayList<>();
-        records.add(InsertRecord.builder()
+        List<InsertRequestRecord> records = new ArrayList<>();
+        records.add(InsertRequestRecord.builder()
                 .data(new HashMap<String, Object>() {
                     {
                         put("name", "shared");
                     }
                 })
-                .table("table_one")
+                .tableName("table_one")
                 .build());
-        records.add(InsertRecord.builder()
+        records.add(InsertRequestRecord.builder()
                 .data(new HashMap<String, Object>() {
                     {
                         put("name", "shared");
                     }
                 })
-                .table("table_two")
+                .tableName("table_two")
                 .build());
 
-        Success successOne = mock(Success.class);
+        BulkInsertResponseRecord successOne = mock(BulkInsertResponseRecord.class);
         when(successOne.getIndex()).thenReturn(0);
-        Success successTwo = mock(Success.class);
+        BulkInsertResponseRecord successTwo = mock(BulkInsertResponseRecord.class);
         when(successTwo.getIndex()).thenReturn(1);
 
-        InsertResponse insertResponse = mock(InsertResponse.class);
-        when(insertResponse.getSuccess()).thenReturn(Arrays.asList(successOne, successTwo));
+        BulkInsertResponse insertResponse = mock(BulkInsertResponse.class);
+        when(insertResponse.getRecords()).thenReturn(Arrays.asList(successOne, successTwo));
 
-        Map<Object, Success> successMap = Helper.getInsertSuccessMap(insertResponse, records);
+        Map<Object, BulkInsertResponseRecord> successMap = Helper.getInsertSuccessMap(insertResponse, records);
 
         assertEquals(2, successMap.size());
         assertTrue(successMap.containsKey(Helper.concatWithUnderscore("table_one", "shared")));
@@ -510,31 +511,33 @@ class HelperTest {
 
     @Test
     void get_insert_error_map_uses_value_and_table_name_as_key() {
-        ArrayList<InsertRecord> records = new ArrayList<>();
-        records.add(InsertRecord.builder()
+        List<InsertRequestRecord> records = new ArrayList<>();
+        records.add(InsertRequestRecord.builder()
                 .data(new HashMap<String, Object>() {
                     {
                         put("name", "shared");
                     }
                 })
-                .table("table_one")
+                .tableName("table_one")
                 .build());
-        records.add(InsertRecord.builder()
+        records.add(InsertRequestRecord.builder()
                 .data(new HashMap<String, Object>() {
                     {
                         put("name", "shared");
                     }
                 })
-                .table("table_two")
+                .tableName("table_two")
                 .build());
 
-        ErrorRecord errorOne = mock(ErrorRecord.class);
+        BulkInsertResponseRecord errorOne = mock(BulkInsertResponseRecord.class);
         when(errorOne.getIndex()).thenReturn(0);
-        ErrorRecord errorTwo = mock(ErrorRecord.class);
+        when(errorOne.getError()).thenReturn("Bad Request");
+        BulkInsertResponseRecord errorTwo = mock(BulkInsertResponseRecord.class);
         when(errorTwo.getIndex()).thenReturn(1);
+        when(errorTwo.getError()).thenReturn("Bad Request");
 
-        InsertResponse insertResponse = mock(InsertResponse.class);
-        when(insertResponse.getErrors()).thenReturn(Arrays.asList(errorOne, errorTwo));
+        BulkInsertResponse insertResponse = mock(BulkInsertResponse.class);
+        when(insertResponse.getRecords()).thenReturn(Arrays.asList(errorOne, errorTwo));
 
         Map<Object, ErrorRecord> errorsMap = Helper.getInsertErrorsMap(insertResponse, records);
 
@@ -570,14 +573,14 @@ class HelperTest {
                 })
                 .collect(Collectors.toList());
 
-        InsertRequest request = Helper.constructInsertRequest(COLUMN_MAPPINGS, batch);
+        BulkInsertRequest request = Helper.constructInsertRequest(COLUMN_MAPPINGS, batch);
 
         // Expect 6 records total (3 columns * 2 rows)
         assertEquals(6, request.getRecords().size());
 
         Set<String> expectedVaultColumns = new HashSet<>(Arrays.asList("name", "phone", "email"));
         Set<Object> collectedValues = new HashSet<>();
-        for (InsertRecord record : request.getRecords()) {
+        for (InsertRequestRecord record : request.getRecords()) {
             assertEquals(1, record.getData().size());
             String key = record.getData().keySet().iterator().next();
             assertTrue(expectedVaultColumns.contains(key));
@@ -625,7 +628,7 @@ class HelperTest {
                 })
                 .collect(Collectors.toList());
 
-        InsertRequest request = Helper.constructInsertRequest(COLUMN_MAPPINGS, batch);
+        BulkInsertRequest request = Helper.constructInsertRequest(COLUMN_MAPPINGS, batch);
 
         // Deduplicated unique values:
         // name_column: Alice, Bob (2)
@@ -633,7 +636,7 @@ class HelperTest {
         assertEquals(4, request.getRecords().size());
 
         Map<String, Set<Object>> vaultToValues = new HashMap<>();
-        for (InsertRecord record : request.getRecords()) {
+        for (InsertRequestRecord record : request.getRecords()) {
             String key = record.getData().keySet().iterator().next();
             Object val = record.getData().values().iterator().next();
             vaultToValues.putIfAbsent(key, new HashSet<>());
@@ -647,7 +650,7 @@ class HelperTest {
     @Test
     void construct_insert_request_with_empty_batch() {
         List<Row> batch = Collections.emptyList();
-        InsertRequest request = Helper.constructInsertRequest(COLUMN_MAPPINGS, batch);
+        BulkInsertRequest request = Helper.constructInsertRequest(COLUMN_MAPPINGS, batch);
         assertTrue(request.getRecords().isEmpty());
     }
 
@@ -659,7 +662,7 @@ class HelperTest {
                 createRowWithSchema(schema, "Alice", null),
                 createRowWithSchema(schema, null, null));
         COLUMN_MAPPINGS.remove("email");
-        InsertRequest request = Helper.constructInsertRequest(COLUMN_MAPPINGS, batch);
+        BulkInsertRequest request = Helper.constructInsertRequest(COLUMN_MAPPINGS, batch);
 
         assertEquals(2, request.getRecords().size());
         Set<Object> values = request.getRecords().stream()
@@ -696,9 +699,9 @@ class HelperTest {
                 })
                 .collect(Collectors.toList());
 
-        InsertRequest request = Helper.constructInsertRequest(COLUMN_MAPPINGS, batch);
+        BulkInsertRequest request = Helper.constructInsertRequest(COLUMN_MAPPINGS, batch);
 
-        for (InsertRecord record : request.getRecords()) {
+        for (InsertRequestRecord record : request.getRecords()) {
             String key = record.getData().keySet().iterator().next();
             assertTrue("name".equals(key) || "email".equals(key));
         }
@@ -716,7 +719,7 @@ class HelperTest {
                 createRowWithSchema(schema, "b@example.com", "b@example.com"),
                 createRowWithSchema(schema, "a@example.com", "a@example.com"));
 
-        InsertRequest request = Helper.constructInsertRequest(mappings, batch);
+        BulkInsertRequest request = Helper.constructInsertRequest(mappings, batch);
 
         assertEquals(2, request.getRecords().size());
         Set<Object> values = request.getRecords().stream()
@@ -731,87 +734,87 @@ class HelperTest {
 
     @Test
     void get_token_returns_token_when_no_target_group() {
-        Success success = mock(Success.class);
-        Token token1 = mock(Token.class);
-        when(token1.getToken()).thenReturn("tokenValue1");
-        when(token1.getTokenGroupName()).thenReturn(null);
+        InsertResponseRecord successRecord = mock(InsertResponseRecord.class);
+        Token token1 = new Token("tokenValue1", null);
 
         Map<String, List<Token>> tokenMap = new HashMap<>();
         tokenMap.put("columnA", Collections.singletonList(token1));
-        when(success.getTokens()).thenReturn(tokenMap);
+        when(successRecord.getTokens()).thenReturn(tokenMap);
 
         ColumnMapping skyflowColumnMapping = new ColumnMapping("tableA", "columnA");
 
-        String token = Helper.getToken(success, skyflowColumnMapping);
+        String token = Helper.getToken(successRecord, skyflowColumnMapping);
         assertEquals("tokenValue1", token);
     }
 
     @Test
     void get_token_returns_token_matching_target_group() {
-        Success success = mock(Success.class);
+        InsertResponseRecord successRecord = mock(InsertResponseRecord.class);
 
-        Token token1 = mock(Token.class);
-        when(token1.getToken()).thenReturn("tokenValue1");
-        when(token1.getTokenGroupName()).thenReturn("groupA");
-
-        Token token2 = mock(Token.class);
-        when(token2.getToken()).thenReturn("tokenValue2");
-        when(token2.getTokenGroupName()).thenReturn("groupB");
+        Token token1 = new Token("tokenValue1", "groupA");
+        Token token2 = new Token("tokenValue2", "groupB");
 
         Map<String, List<Token>> tokenMap = new HashMap<>();
         tokenMap.put("columnA", Arrays.asList(token1, token2));
-        when(success.getTokens()).thenReturn(tokenMap);
+        when(successRecord.getTokens()).thenReturn(tokenMap);
 
         ColumnMapping skyflowColumnMapping = new ColumnMapping("tableA", "columnA", "groupA");
 
-        String token = Helper.getToken(success, skyflowColumnMapping);
+        String token = Helper.getToken(successRecord, skyflowColumnMapping);
         assertEquals("tokenValue1", token);
     }
 
     @Test
     void get_token_returns_null_when_no_tokens_for_column() {
-        Success success = mock(Success.class);
-        when(success.getTokens()).thenReturn(Collections.emptyMap());
+        InsertResponseRecord successRecord = mock(InsertResponseRecord.class);
+        when(successRecord.getTokens()).thenReturn(Collections.emptyMap());
 
         ColumnMapping skyflowColumnMapping = new ColumnMapping("columnA", null);
 
-        String token = Helper.getToken(success, skyflowColumnMapping);
+        String token = Helper.getToken(successRecord, skyflowColumnMapping);
         assertNull(token);
     }
 
     @Test
     void get_token_returns_null_when_token_list_empty() {
-        Success success = mock(Success.class);
+        InsertResponseRecord successRecord = mock(InsertResponseRecord.class);
         Map<String, List<Token>> tokenMap = new HashMap<>();
         tokenMap.put("columnA", Collections.emptyList());
-        when(success.getTokens()).thenReturn(tokenMap);
+        when(successRecord.getTokens()).thenReturn(tokenMap);
 
         ColumnMapping skyflowColumnMapping = new ColumnMapping("columnA", null);
 
-        String token = Helper.getToken(success, skyflowColumnMapping);
+        String token = Helper.getToken(successRecord, skyflowColumnMapping);
+        assertNull(token);
+    }
+
+    @Test
+    void get_token_returns_null_when_tokens_is_null() {
+        InsertResponseRecord successRecord = mock(InsertResponseRecord.class);
+        when(successRecord.getTokens()).thenReturn(null);
+
+        ColumnMapping skyflowColumnMapping = new ColumnMapping("tableA", "columnA");
+
+        String token = Helper.getToken(successRecord, skyflowColumnMapping);
         assertNull(token);
     }
 
     @Test
     public void get_token_returns_null_when_no_token_matches_target_group() {
-        Success success = mock(Success.class);
+        InsertResponseRecord successRecord = mock(InsertResponseRecord.class);
 
-        Token token1 = mock(Token.class);
-        when(token1.getToken()).thenReturn("tokenValue1");
-        when(token1.getTokenGroupName()).thenReturn("groupA");
+        Token token1 = new Token("tokenValue1", "groupA");
 
         Map<String, List<Token>> tokenMap = new HashMap<>();
         tokenMap.put("columnA", Collections.singletonList(token1));
-        when(success.getTokens()).thenReturn(tokenMap);
+        when(successRecord.getTokens()).thenReturn(tokenMap);
 
         ColumnMapping skyflowColumnMapping = new ColumnMapping("columnA", "groupB"); // Target group doesn't match
         // token1's group
 
-        String token = Helper.getToken(success, skyflowColumnMapping);
+        String token = Helper.getToken(successRecord, skyflowColumnMapping);
         assertNull(token);
     }
-
-    // endregion Token helper tests
 
     // endregion Token helper tests
 
@@ -819,18 +822,18 @@ class HelperTest {
 
     @Test
     public void construct_insert_retry_request_empty_errors_map() {
-        ArrayList<InsertRecord> allRecords = new ArrayList<>();
+        ArrayList<InsertRequestRecord> allRecords = new ArrayList<>();
         Map<Object, ErrorRecord> errorsMap = new HashMap<>();
 
-        InsertRequest result = Helper.constructInsertRetryRequest(allRecords, errorsMap);
+        BulkInsertRequest result = Helper.constructInsertRetryRequest(allRecords, errorsMap);
 
         assertTrue(result.getRecords().isEmpty());
     }
 
     @Test
     public void construct_insert_retry_request_only_non_retryable_errors() {
-        List<InsertRecord> allRecords = Collections.singletonList(
-                InsertRecord.builder().data(new HashMap<String, Object>() {
+        List<InsertRequestRecord> allRecords = Collections.singletonList(
+                InsertRequestRecord.builder().data(new HashMap<String, Object>() {
                     {
                         put("name", "Alice");
                     }
@@ -841,20 +844,20 @@ class HelperTest {
         when(errorRecord.getCode()).thenReturn(400);
         errorsMap.put("Alice", errorRecord);
 
-        InsertRequest result = Helper.constructInsertRetryRequest(allRecords, errorsMap);
+        BulkInsertRequest result = Helper.constructInsertRetryRequest(allRecords, errorsMap);
 
         assertTrue(result.getRecords().isEmpty());
     }
 
     @Test
     public void construct_insert_retry_request_only_retryable_errors() {
-        ArrayList<InsertRecord> allRecords = new ArrayList<>();
-        allRecords.add(InsertRecord.builder().data(new HashMap<String, Object>() {
+        ArrayList<InsertRequestRecord> allRecords = new ArrayList<>();
+        allRecords.add(InsertRequestRecord.builder().data(new HashMap<String, Object>() {
             {
                 put("name", "Alice");
             }
         }).build());
-        allRecords.add(InsertRecord.builder().data(new HashMap<String, Object>() {
+        allRecords.add(InsertRequestRecord.builder().data(new HashMap<String, Object>() {
             {
                 put("name", "Bob");
             }
@@ -866,21 +869,21 @@ class HelperTest {
         errorsMap.put("Alice", errorRecord);
         errorsMap.put("Bob", errorRecord);
 
-        InsertRequest result = Helper.constructInsertRetryRequest(allRecords, errorsMap);
+        BulkInsertRequest result = Helper.constructInsertRetryRequest(allRecords, errorsMap);
 
         assertEquals(2, result.getRecords().size());
     }
 
     @Test
     public void construct_insert_retry_request_mixed_retryable_and_non_retryable_errors() {
-        ArrayList<InsertRecord> records;
+        ArrayList<InsertRequestRecord> records;
         records = new ArrayList<>();
-        records.add(InsertRecord.builder().data(new HashMap<String, Object>() {
+        records.add(InsertRequestRecord.builder().data(new HashMap<String, Object>() {
             {
                 put("name", "Alice");
             }
-        }).table("name").build());
-        records.add(InsertRecord.builder().data(new HashMap<String, Object>() {
+        }).tableName("name").build());
+        records.add(InsertRequestRecord.builder().data(new HashMap<String, Object>() {
             {
                 put("name", "Bob");
             }
@@ -895,7 +898,7 @@ class HelperTest {
         when(errorRecord2.getCode()).thenReturn(400);
         errorsMap.put("Bob", errorRecord2);
 
-        InsertRequest result = Helper.constructInsertRetryRequest(records, errorsMap);
+        BulkInsertRequest result = Helper.constructInsertRetryRequest(records, errorsMap);
 
         assertEquals(1, result.getRecords().size());
         assertEquals("Alice", result.getRecords().get(0).getData().get("name"));
@@ -903,13 +906,13 @@ class HelperTest {
 
     @Test
     public void construct_insert_retry_request_duplicate_retryable_indexes() {
-        List<InsertRecord> allRecords = Arrays.asList(
-                InsertRecord.builder().data(new HashMap<String, Object>() {
+        List<InsertRequestRecord> allRecords = Arrays.asList(
+                InsertRequestRecord.builder().data(new HashMap<String, Object>() {
                     {
                         put("name", "Alice");
                     }
                 }).build(),
-                InsertRecord.builder().data(new HashMap<String, Object>() {
+                InsertRequestRecord.builder().data(new HashMap<String, Object>() {
                     {
                         put("name", "Bob");
                     }
@@ -925,7 +928,7 @@ class HelperTest {
         errorsMap.put("Alice", errorRecord1);
         errorsMap.put("Bob", errorRecord2);
 
-        InsertRequest result = Helper.constructInsertRetryRequest(allRecords, errorsMap);
+        BulkInsertRequest result = Helper.constructInsertRetryRequest(allRecords, errorsMap);
 
         assertEquals(2, result.getRecords().size());
     }
@@ -938,14 +941,9 @@ class HelperTest {
     public void replace_data_with_tokens_success() {
         StructType schema = createSchema("phone");
         Row row = createRowWithSchema(schema, 123);
-        Success success = mock(Success.class);
-        Map<Object, Success> successMap = Collections.singletonMap(Helper.concatWithUnderscore("phone", 123), success);
-        Map<String, List<Token>> tokenMap = new HashMap<>();
-        Token token1 = mock(Token.class);
-        when(token1.getToken()).thenReturn("token123");
-        when(token1.getTokenGroupName()).thenReturn("deterministic_phone");
-        tokenMap.put("phone", Collections.singletonList(token1));
-        when(success.getTokens()).thenReturn(tokenMap);
+        BulkInsertResponseRecord success = mock(BulkInsertResponseRecord.class);
+        when(success.getTokens()).thenReturn(Collections.singletonMap("phone", Collections.singletonList(new Token("token123", null))));
+        Map<Object, BulkInsertResponseRecord> successMap = Collections.singletonMap(Helper.concatWithUnderscore("phone", 123), success);
         List<Row> out = Helper.replaceDataWithTokens(COLUMN_MAPPINGS, Collections.singletonList(row), successMap,
                 new HashMap<>());
         assertEquals("token123", out.get(0).getString(0));
@@ -962,14 +960,10 @@ class HelperTest {
         mappings.put("name", new ColumnMapping("name_table", "name_column"));
         mappings.put("phone", new ColumnMapping("phone_table", "phone_column"));
 
-        Success success = mock(Success.class);
-        Token token = mock(Token.class);
-        when(token.getToken()).thenReturn("token-1111");
-        Map<String, List<Token>> tokenMap = new HashMap<>();
-        tokenMap.put("phone_column", Collections.singletonList(token));
-        when(success.getTokens()).thenReturn(tokenMap);
+        BulkInsertResponseRecord success = mock(BulkInsertResponseRecord.class);
+        when(success.getTokens()).thenReturn(Collections.singletonMap("phone_column", Collections.singletonList(new Token("token-1111", null))));
 
-        Map<Object, Success> successMap = Collections
+        Map<Object, BulkInsertResponseRecord> successMap = Collections
                 .singletonMap(Helper.concatWithUnderscore("phone_table", "1111"), success);
 
         List<Row> outputRows = Helper.replaceDataWithTokens(mappings, Collections.singletonList(row), successMap,
@@ -983,6 +977,29 @@ class HelperTest {
     }
 
     @Test
+    public void replace_data_with_tokens_sets_error_when_token_missing_from_fields() {
+        StructType schema = createSchema("name");
+        Row row = createRowWithSchema(schema, "Alice");
+        ColumnMapping mapping = new ColumnMapping("name_table", "name_column");
+        Map<String, ColumnMapping> mappings = new HashMap<>();
+        mappings.put("name", mapping);
+
+        BulkInsertResponseRecord success = mock(BulkInsertResponseRecord.class);
+        when(success.getTokens()).thenReturn(Collections.emptyMap());
+
+        Map<Object, BulkInsertResponseRecord> successMap = Collections
+                .singletonMap(Helper.concatWithUnderscore("name_table", "Alice"), success);
+
+        List<Row> out = Helper.replaceDataWithTokens(mappings, Collections.singletonList(row), successMap,
+                Collections.emptyMap());
+
+        Row result = out.get(0);
+        assertEquals("Alice", result.getString(0));
+        assertEquals(Constants.STATUS_ERROR, result.getString(1));
+        assertEquals(Constants.INSERT_FAILED, result.get(2));
+    }
+
+    @Test
     public void replace_data_with_tokens_sets_error_when_token_group_mismatch() {
         StructType schema = createSchema("name");
         Row row = createRowWithSchema(schema, "Alice");
@@ -990,15 +1007,11 @@ class HelperTest {
         Map<String, ColumnMapping> mappings = new HashMap<>();
         mappings.put("name", mapping);
 
-        Success success = mock(Success.class);
-        Token token = mock(Token.class);
-        when(token.getToken()).thenReturn("tokenValue");
-        when(token.getTokenGroupName()).thenReturn("different_group");
-        Map<String, List<Token>> tokenMap = new HashMap<>();
-        tokenMap.put("name_column", Collections.singletonList(token));
-        when(success.getTokens()).thenReturn(tokenMap);
+        BulkInsertResponseRecord success = mock(BulkInsertResponseRecord.class);
+        Token token = new Token("tokenValue", "different_group");
+        when(success.getTokens()).thenReturn(Collections.singletonMap("name_column", Collections.singletonList(token)));
 
-        Map<Object, Success> successMap = Collections
+        Map<Object, BulkInsertResponseRecord> successMap = Collections
                 .singletonMap(Helper.concatWithUnderscore("name_table", "Alice"), success);
 
         List<Row> out = Helper.replaceDataWithTokens(mappings, Collections.singletonList(row), successMap,
@@ -1031,11 +1044,9 @@ class HelperTest {
     public void replace_data_with_tokens_success_token_not_populated() {
         StructType schema = createSchema("phone");
         Row row = createRowWithSchema(schema, 123);
-        Success success = mock(Success.class);
-        Map<Object, Success> successMap = Collections.singletonMap(Helper.concatWithUnderscore("phone", 123), success);
-        Map<String, List<Token>> tokenMap = new HashMap<>();
-        tokenMap.put("phone", Collections.emptyList());
-        when(success.getTokens()).thenReturn(tokenMap);
+        BulkInsertResponseRecord success = mock(BulkInsertResponseRecord.class);
+        when(success.getTokens()).thenReturn(Collections.emptyMap());
+        Map<Object, BulkInsertResponseRecord> successMap = Collections.singletonMap(Helper.concatWithUnderscore("phone", 123), success);
         List<Row> out = Helper.replaceDataWithTokens(COLUMN_MAPPINGS, Collections.singletonList(row), successMap,
                 new HashMap<>());
         assertEquals(123, out.get(0).getInt(0));
@@ -1044,30 +1055,11 @@ class HelperTest {
     }
 
     @Test
-    public void replace_data_with_tokens_success_no_token_group() {
-        StructType schema = createSchema("phone");
-        Row row = createRowWithSchema(schema, 123);
-        Success success = mock(Success.class);
-        Map<Object, Success> successMap = Collections.singletonMap(Helper.concatWithUnderscore("phone", 123), success);
-        Map<String, List<Token>> tokenMap = new HashMap<>();
-        Token token1 = mock(Token.class);
-        when(token1.getToken()).thenReturn("token123");
-        when(token1.getTokenGroupName()).thenReturn("deterministic_phone");
-        tokenMap.put("phone", Collections.singletonList(token1));
-        when(success.getTokens()).thenReturn(tokenMap);
-        List<Row> out = Helper.replaceDataWithTokens(COLUMN_MAPPINGS, Collections.singletonList(row), successMap,
-                new HashMap<>());
-        assertEquals("token123", out.get(0).getString(0));
-        assertEquals("200", out.get(0).getString(1));
-        assertNull(out.get(0).get(2));
-    }
-
-    @Test
     public void replace_data_with_tokens_but_null_token() {
         StructType schema = createSchema("phone");
         Row row = createRowWithSchema(schema, 123);
-        Success success = mock(Success.class);
-        Map<Object, Success> successMap = Collections.singletonMap(123, success);
+        BulkInsertResponseRecord success = mock(BulkInsertResponseRecord.class);
+        Map<Object, BulkInsertResponseRecord> successMap = Collections.singletonMap(123, success);
 
         List<Row> out = Helper.replaceDataWithTokens(COLUMN_MAPPINGS, Collections.singletonList(row), successMap,
                 new HashMap<>());
@@ -1113,13 +1105,9 @@ class HelperTest {
     public void replace_data_with_tokens_success_and_failure() {
         StructType schema = createSchema("phone", "name");
         Row row = createRowWithSchema(schema, "123", "Alice");
-        Success success = mock(Success.class);
-        Map<Object, Success> successMap = Collections.singletonMap("123", success);
-        Map<String, List<Token>> tokenMap = new HashMap<>();
-        Token token1 = mock(Token.class);
-        when(token1.getToken()).thenReturn("token123");
-        tokenMap.put("phone", Collections.singletonList(token1));
-        when(success.getTokens()).thenReturn(tokenMap);
+        BulkInsertResponseRecord success = mock(BulkInsertResponseRecord.class);
+        when(success.getTokens()).thenReturn(Collections.singletonMap("phone", Collections.singletonList(new Token("token123", null))));
+        Map<Object, BulkInsertResponseRecord> successMap = Collections.singletonMap("123", success);
         List<Row> out = Helper.replaceDataWithTokens(COLUMN_MAPPINGS, Collections.singletonList(row), successMap,
                 new HashMap<>());
         assertEquals("123", out.get(0).getString(0));
@@ -1150,21 +1138,21 @@ class HelperTest {
 
     @Test
     public void insert_merge_retry_results_only_successes() {
-        ArrayList<InsertRecord> records;
-        InsertResponse retryResponse;
-        Map<Object, Success> successMap;
+        ArrayList<InsertRequestRecord> records;
+        BulkInsertResponse retryResponse;
+        Map<Object, BulkInsertResponseRecord> successMap;
         Map<Object, ErrorRecord> errorsMap;
         records = new ArrayList<>();
-        records.add(InsertRecord.builder().data(new HashMap<String, Object>() {
+        records.add(InsertRequestRecord.builder().data(new HashMap<String, Object>() {
             {
                 put("name", "Alice");
             }
         }).build());
 
-        retryResponse = mock(InsertResponse.class);
+        retryResponse = mock(BulkInsertResponse.class);
         successMap = new HashMap<>();
         errorsMap = new HashMap<>();
-        successMap.put(Helper.concatWithUnderscore("name", "Alice"), mock(Success.class));
+        successMap.put(Helper.concatWithUnderscore("name", "Alice"), mock(BulkInsertResponseRecord.class));
 
         Helper.mergeInsertRetryResults(records, retryResponse, successMap, errorsMap);
 
@@ -1175,37 +1163,36 @@ class HelperTest {
 
     @Test
     public void insert_merge_retry_results_only_errors() {
-        ArrayList<InsertRecord> records;
-        InsertResponse retryResponse;
-        Map<Object, Success> successMap;
+        ArrayList<InsertRequestRecord> records;
+        BulkInsertResponse retryResponse;
+        Map<Object, BulkInsertResponseRecord> successMap;
         Map<Object, ErrorRecord> errorsMap;
         records = new ArrayList<>();
 
-        records.add(InsertRecord.builder().data(new HashMap<String, Object>() {
+        records.add(InsertRequestRecord.builder().data(new HashMap<String, Object>() {
             {
                 put("name", "Alice");
             }
-        }).table("name").build());
-        records.add(InsertRecord.builder().data(new HashMap<String, Object>() {
+        }).tableName("name").build());
+        records.add(InsertRequestRecord.builder().data(new HashMap<String, Object>() {
             {
                 put("name", "Bob");
             }
-        }).table("name").build());
+        }).tableName("name").build());
 
-        retryResponse = mock(InsertResponse.class);
+        retryResponse = mock(BulkInsertResponse.class);
         successMap = new HashMap<>();
         errorsMap = new HashMap<>();
-        ErrorRecord errorRecord1 = mock(ErrorRecord.class);
-        when(errorRecord1.getCode()).thenReturn(429);
+        BulkInsertResponseRecord errorRecord1 = mock(BulkInsertResponseRecord.class);
         when(errorRecord1.getIndex()).thenReturn(0);
-        ErrorRecord errorRecord2 = mock(ErrorRecord.class);
-        when(errorRecord2.getCode()).thenReturn(429);
+        when(errorRecord1.getError()).thenReturn("Too Many Requests");
+        when(errorRecord1.getHttpCode()).thenReturn(429);
+        BulkInsertResponseRecord errorRecord2 = mock(BulkInsertResponseRecord.class);
         when(errorRecord2.getIndex()).thenReturn(1);
-        errorsMap.put(Helper.concatWithUnderscore("name", "Alice"), errorRecord1);
-        errorsMap.put(Helper.concatWithUnderscore("name", "Bob"), errorRecord2);
+        when(errorRecord2.getError()).thenReturn("Too Many Requests");
+        when(errorRecord2.getHttpCode()).thenReturn(429);
 
-        when(retryResponse.getSuccess()).thenReturn(Collections.emptyList());
-        when(retryResponse.getErrors()).thenReturn(Arrays.asList(errorRecord1, errorRecord2));
+        when(retryResponse.getRecords()).thenReturn(Arrays.asList(errorRecord1, errorRecord2));
         Helper.mergeInsertRetryResults(records, retryResponse, successMap, errorsMap);
 
         assertEquals(2, errorsMap.size());
@@ -1215,35 +1202,36 @@ class HelperTest {
 
     @Test
     public void insert_merge_retry_results_successes_and_errors() {
-        ArrayList<InsertRecord> records;
-        InsertResponse retryResponse;
-        Map<Object, Success> successMap;
+        ArrayList<InsertRequestRecord> records;
+        BulkInsertResponse retryResponse;
+        Map<Object, BulkInsertResponseRecord> successMap;
         Map<Object, ErrorRecord> errorsMap;
         records = new ArrayList<>();
 
-        records.add(InsertRecord.builder().data(new HashMap<String, Object>() {
+        records.add(InsertRequestRecord.builder().data(new HashMap<String, Object>() {
             {
                 put("name", "Alice");
             }
-        }).table("name").build());
-        records.add(InsertRecord.builder().data(new HashMap<String, Object>() {
+        }).tableName("name").build());
+        records.add(InsertRequestRecord.builder().data(new HashMap<String, Object>() {
             {
                 put("name", "Bob");
             }
-        }).table("name").build());
+        }).tableName("name").build());
 
-        retryResponse = mock(InsertResponse.class);
+        retryResponse = mock(BulkInsertResponse.class);
         successMap = new HashMap<>();
         errorsMap = new HashMap<>();
 
-        Success success = mock(Success.class);
+        BulkInsertResponseRecord success = mock(BulkInsertResponseRecord.class);
         when(success.getIndex()).thenReturn(0);
 
-        ErrorRecord error = mock(ErrorRecord.class);
+        BulkInsertResponseRecord error = mock(BulkInsertResponseRecord.class);
         when(error.getIndex()).thenReturn(1);
+        when(error.getError()).thenReturn("Internal Server Error");
+        when(error.getHttpCode()).thenReturn(500);
 
-        when(retryResponse.getSuccess()).thenReturn(Collections.singletonList(success));
-        when(retryResponse.getErrors()).thenReturn(Collections.singletonList(error));
+        when(retryResponse.getRecords()).thenReturn(Arrays.asList(success, error));
 
         Helper.mergeInsertRetryResults(records, retryResponse, successMap, errorsMap);
 
@@ -1256,23 +1244,23 @@ class HelperTest {
     @Test
 
     public void insert_merge_retry_results_empty_retry_response() {
-        ArrayList<InsertRecord> records;
-        InsertResponse retryResponse;
-        Map<Object, Success> successMap;
+        ArrayList<InsertRequestRecord> records;
+        BulkInsertResponse retryResponse;
+        Map<Object, BulkInsertResponseRecord> successMap;
         Map<Object, ErrorRecord> errorsMap;
         records = new ArrayList<>();
-        records.add(InsertRecord.builder().data(new HashMap<String, Object>() {
+        records.add(InsertRequestRecord.builder().data(new HashMap<String, Object>() {
             {
                 put("name", "Alice");
             }
         }).build());
-        records.add(InsertRecord.builder().data(new HashMap<String, Object>() {
+        records.add(InsertRequestRecord.builder().data(new HashMap<String, Object>() {
             {
                 put("name", "Bob");
             }
         }).build());
 
-        retryResponse = mock(InsertResponse.class);
+        retryResponse = mock(BulkInsertResponse.class);
         successMap = new HashMap<>();
         errorsMap = new HashMap<>();
 
@@ -1294,7 +1282,7 @@ class HelperTest {
         StructType schema = createSchema("name");
         Row row = createRowWithSchema(schema, "token123");
 
-        DetokenizeRequest req = Helper.constructDetokenizeRequest(COLUMN_MAPPINGS, Collections.singletonList(row));
+        BulkDetokenizeRequest req = Helper.constructDetokenizeRequest(COLUMN_MAPPINGS, Collections.singletonList(row));
 
         assertEquals(1, req.getTokens().size());
         assertTrue(req.getTokens().contains("token123"));
@@ -1312,7 +1300,7 @@ class HelperTest {
         Row row1 = createRowWithSchema(schema, "tokenA", "tokenB");
         Row row2 = createRowWithSchema(schema, "tokenA", "tokenC"); // tokenA appears twice
 
-        DetokenizeRequest req = Helper.constructDetokenizeRequest(COLUMN_MAPPINGS, Arrays.asList(row1, row2));
+        BulkDetokenizeRequest req = Helper.constructDetokenizeRequest(COLUMN_MAPPINGS, Arrays.asList(row1, row2));
 
         assertEquals(3, req.getTokens().size()); // tokenA, tokenB, tokenC
         assertTrue(req.getTokens().containsAll(Arrays.asList("tokenA", "tokenB", "tokenC")));
@@ -1325,7 +1313,7 @@ class HelperTest {
         StructType schema = createSchema("unmapped");
         Row row = createRowWithSchema(schema, "value");
         COLUMN_MAPPINGS.clear();
-        DetokenizeRequest req = Helper.constructDetokenizeRequest(COLUMN_MAPPINGS, Collections.singletonList(row));
+        BulkDetokenizeRequest req = Helper.constructDetokenizeRequest(COLUMN_MAPPINGS, Collections.singletonList(row));
 
         assertTrue(req.getTokens().isEmpty());
         assertTrue(req.getTokenGroupRedactions().isEmpty());
@@ -1339,7 +1327,7 @@ class HelperTest {
                 createRowWithSchema(schema, "tokenB", null),
                 createRowWithSchema(schema, null, null));
         COLUMN_MAPPINGS.remove("phone");
-        DetokenizeRequest request = Helper.constructDetokenizeRequest(COLUMN_MAPPINGS, batch);
+        BulkDetokenizeRequest request = Helper.constructDetokenizeRequest(COLUMN_MAPPINGS, batch);
 
         assertEquals(2, request.getTokens().size());
         assertTrue(request.getTokens().containsAll(Arrays.asList("tokenA", "tokenB")));
@@ -1353,7 +1341,7 @@ class HelperTest {
         StructType schema = createSchema("name");
         Row row = createRowWithSchema(schema, "tokenZ");
 
-        DetokenizeRequest req = Helper.constructDetokenizeRequest(COLUMN_MAPPINGS, Collections.singletonList(row));
+        BulkDetokenizeRequest req = Helper.constructDetokenizeRequest(COLUMN_MAPPINGS, Collections.singletonList(row));
 
         assertEquals(1, req.getTokens().size());
         assertTrue(req.getTokens().contains("tokenZ"));
@@ -1369,7 +1357,7 @@ class HelperTest {
         List<Row> batch = Collections.singletonList(
                 createRowWithSchema(schema, "token1", "token2"));
 
-        DetokenizeRequest request = Helper.constructDetokenizeRequest(COLUMN_MAPPINGS, batch);
+        BulkDetokenizeRequest request = Helper.constructDetokenizeRequest(COLUMN_MAPPINGS, batch);
 
         // Both values should appear
         assertTrue(request.getTokens().contains("token1"));
@@ -1382,13 +1370,13 @@ class HelperTest {
 
     @Test
     void get_detokenize_success_map() {
-        DetokenizeResponseObject obj1 = mock(DetokenizeResponseObject.class);
+        BulkDetokenizeResponseRecord obj1 = mock(BulkDetokenizeResponseRecord.class);
         when(obj1.getToken()).thenReturn("token1");
 
-        DetokenizeResponse detokenizeResponse = mock(DetokenizeResponse.class);
-        when(detokenizeResponse.getSuccess()).thenReturn(Collections.singletonList(obj1));
+        BulkDetokenizeResponse detokenizeResponse = mock(BulkDetokenizeResponse.class);
+        when(detokenizeResponse.getRecords()).thenReturn(Collections.singletonList(obj1));
 
-        Map<String, DetokenizeResponseObject> successMap = Helper.getDetokenizeSuccessMap(detokenizeResponse);
+        Map<String, BulkDetokenizeResponseRecord> successMap = Helper.getDetokenizeSuccessMap(detokenizeResponse);
 
         assertEquals(1, successMap.size());
         assertTrue(successMap.containsKey("token1"));
@@ -1396,15 +1384,16 @@ class HelperTest {
 
     @Test
     void get_detokenize_errors_map() {
-        ErrorRecord error = mock(ErrorRecord.class);
+        BulkDetokenizeResponseRecord error = mock(BulkDetokenizeResponseRecord.class);
         when(error.getIndex()).thenReturn(0);
+        when(error.getToken()).thenReturn("token1");
+        when(error.getError()).thenReturn("Token not found");
+        when(error.getHttpCode()).thenReturn(404);
 
-        DetokenizeResponse detokenizeResponse = mock(DetokenizeResponse.class);
-        when(detokenizeResponse.getErrors()).thenReturn(Collections.singletonList(error));
+        BulkDetokenizeResponse detokenizeResponse = mock(BulkDetokenizeResponse.class);
+        when(detokenizeResponse.getRecords()).thenReturn(Collections.singletonList(error));
 
-        List<String> tokens = Collections.singletonList("token1");
-
-        Map<String, ErrorRecord> errorMap = Helper.geDetokenizeErrorsMap(detokenizeResponse, tokens);
+        Map<String, ErrorRecord> errorMap = Helper.getDetokenizeErrorsMap(detokenizeResponse);
 
         assertEquals(1, errorMap.size());
         assertTrue(errorMap.containsKey("token1"));
@@ -1416,12 +1405,12 @@ class HelperTest {
 
         Row row = createRowWithSchema(schema, "token1", "token2", "static");
 
-        DetokenizeResponseObject respName = mock(DetokenizeResponseObject.class);
+        BulkDetokenizeResponseRecord respName = mock(BulkDetokenizeResponseRecord.class);
         when(respName.getValue()).thenReturn("Alice");
-        DetokenizeResponseObject respPhone = mock(DetokenizeResponseObject.class);
+        BulkDetokenizeResponseRecord respPhone = mock(BulkDetokenizeResponseRecord.class);
         when(respPhone.getValue()).thenReturn("1111");
 
-        Map<String, DetokenizeResponseObject> successMap = new HashMap<>();
+        Map<String, BulkDetokenizeResponseRecord> successMap = new HashMap<>();
         successMap.put("token1", respName);
         successMap.put("token2", respPhone);
 
@@ -1449,10 +1438,10 @@ class HelperTest {
         mappings.put("name", new ColumnMapping("name_table", "name_column"));
         mappings.put("email", new ColumnMapping("email_table", "email_column"));
 
-        DetokenizeResponseObject resp = mock(DetokenizeResponseObject.class);
+        BulkDetokenizeResponseRecord resp = mock(BulkDetokenizeResponseRecord.class);
         when(resp.getValue()).thenReturn("decoded");
 
-        Map<String, DetokenizeResponseObject> successMap = new HashMap<>();
+        Map<String, BulkDetokenizeResponseRecord> successMap = new HashMap<>();
         successMap.put("tokenA", resp);
 
         List<Row> outputRows = Helper.replaceTokensWithData(mappings, Collections.singletonList(row), successMap,
@@ -1471,7 +1460,7 @@ class HelperTest {
 
         Row row = createRowWithSchema(schema, "token1");
 
-        Map<String, DetokenizeResponseObject> successMap = new HashMap<>();
+        Map<String, BulkDetokenizeResponseRecord> successMap = new HashMap<>();
         Map<String, ErrorRecord> errorsMap = new HashMap<>();
         ErrorRecord errorRecord = mock(ErrorRecord.class);
         when(errorRecord.getCode()).thenReturn(404);
@@ -1500,15 +1489,15 @@ class HelperTest {
         Row row = createRowWithSchema(schema, 100, "token2");
 
         // successMap with non-string keys (Integer keys)
-        DetokenizeResponseObject resp = mock(DetokenizeResponseObject.class);
+        BulkDetokenizeResponseRecord resp = mock(BulkDetokenizeResponseRecord.class);
         when(resp.getValue()).thenReturn("replacedValue");
 
-        Map<Object, DetokenizeResponseObject> successMapWrongKey = new HashMap<>();
+        Map<Object, BulkDetokenizeResponseRecord> successMapWrongKey = new HashMap<>();
         successMapWrongKey.put(100, resp); // Integer key, not String
 
-        // Cast to Map<String, DetokenizeResponseObject> unsafely for test
+        // Cast to Map<String, BulkDetokenizeResponseRecord> unsafely for test
         @SuppressWarnings("unchecked")
-        Map<String, DetokenizeResponseObject> successMap = (Map<String, DetokenizeResponseObject>) (Map<?, ?>) successMapWrongKey;
+        Map<String, BulkDetokenizeResponseRecord> successMap = (Map<String, BulkDetokenizeResponseRecord>) (Map<?, ?>) successMapWrongKey;
 
         Map<Object, ErrorRecord> errorRecordMapKey = new HashMap<>();
         // No errors
