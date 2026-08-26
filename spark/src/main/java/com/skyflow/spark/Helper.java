@@ -295,9 +295,6 @@ public class Helper {
 
     // Gets the token for a given successful insert record and mapping
     public static String getToken(InsertResponseRecord successRecord, ColumnMapping skyflowColumnMapping) {
-        if (successRecord.getTokens() == null) {
-            return null;
-        }
         List<Token> tokenObj = successRecord.getTokens().get(skyflowColumnMapping.getColumnName());
         // failing if there are no tokens
         if (tokenObj != null && !tokenObj.isEmpty()) {
