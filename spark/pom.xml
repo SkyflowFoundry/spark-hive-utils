@@ -88,7 +88,7 @@
                                 </filters>
                                 <artifactSet>
                                     <includes>
-                                        <include>com.skyflow:skyflow-java</include>
+                                        <include>com.skyflow:skyflow-flowvault-java</include>
                                     </includes>
                                 </artifactSet>
                                 <createDependencyReducedPom>true</createDependencyReducedPom>
@@ -125,8 +125,8 @@
         </dependency>
         <dependency>
             <groupId>com.skyflow</groupId>
-            <artifactId>skyflow-java</artifactId>
-            <version>3.0.0-beta.8</version>
+            <artifactId>skyflow-flowvault-java</artifactId>
+            <version>1.1.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.spark</groupId>

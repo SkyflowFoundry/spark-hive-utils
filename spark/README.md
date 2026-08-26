@@ -16,7 +16,7 @@ Prerequisites
 
 * Java 8 (the module targets source/target 1.8).
 * Maven 3.8+.
-* Access to a Spark 3.4.x cluster with the Skyflow Java SDK (3.0.0-beta.6) compatible dependencies.
+* Access to a Spark 3.4.x cluster with the Skyflow Java SDK (skyflow-flowvault-java, 1.1.0) compatible dependencies.
 * Skyflow vault credentials stored as a JSON string or resolvable via your secret manager.
 
 Building The Jar

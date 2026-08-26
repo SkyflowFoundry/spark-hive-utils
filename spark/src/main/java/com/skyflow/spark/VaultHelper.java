@@ -5,12 +5,13 @@ import com.skyflow.config.VaultConfig;
 import com.skyflow.config.Credentials;
 import com.skyflow.errors.SkyflowException;
 import com.skyflow.vault.data.ErrorRecord;
-import com.skyflow.vault.data.InsertResponse;
-import com.skyflow.vault.data.InsertRequest;
-import com.skyflow.vault.data.DetokenizeRequest;
-import com.skyflow.vault.data.DetokenizeResponse;
-import com.skyflow.vault.data.DetokenizeResponseObject;
-import com.skyflow.vault.data.Success;
+import com.skyflow.vault.data.BulkInsertRequest;
+import com.skyflow.vault.data.BulkInsertResponse;
+import com.skyflow.vault.data.BulkInsertResponseRecord;
+import com.skyflow.vault.data.InsertRequestRecord;
+import com.skyflow.vault.data.BulkDetokenizeRequest;
+import com.skyflow.vault.data.BulkDetokenizeResponse;
+import com.skyflow.vault.data.BulkDetokenizeResponseRecord;
 
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -73,7 +74,7 @@ public class VaultHelper {
             VaultConfig vaultConfig = new VaultConfig();
             vaultConfig.setVaultId(tableHelper.getVaultId());
             vaultConfig.setClusterId(tableHelper.getClusterId());
-            vaultConfig.setVaultURL(tableHelper.getVaultUrl());
+            vaultConfig.setVaultUrl(tableHelper.getVaultUrl());
             vaultConfig.setEnv(tableHelper.getEnv());
             vaultConfig.setCredentials(credentials);
             this.skyflowClient = getSkyflowBuilder()
@@ -129,16 +130,16 @@ public class VaultHelper {
             for (List<Row> batch : Helper.getBatches(dataToIngest, batchSize)) {
                 List<Row> batchOutputRows;
                 // Construct and send insert request
-                InsertRequest insertRequest = Helper.constructInsertRequest(schemaMappings, batch);
+                BulkInsertRequest insertRequest = Helper.constructInsertRequest(schemaMappings, batch);
                 if(insertRequest.getRecords().isEmpty()) {
                     batchOutputRows = Helper.replaceDataWithTokens(schemaMappings, batch, new HashMap<>(), new HashMap<>());
                 } else {
                     logger.info(LOG_PREFIX + "Processing batch #" + batchNumber + ", No.of records: "
                             + insertRequest.getRecords().size());
-                    InsertResponse insertResponse = skyflowClient.vault().bulkInsert(insertRequest);
+                    BulkInsertResponse insertResponse = skyflowClient.vault().bulkInsert(insertRequest);
 
                     // Process success and error responses
-                    Map<Object, Success> successMap = Helper.getInsertSuccessMap(insertResponse,
+                    Map<Object, BulkInsertResponseRecord> successMap = Helper.getInsertSuccessMap(insertResponse,
                             insertRequest.getRecords());
                     Map<Object, ErrorRecord> errorsMap = Helper.getInsertErrorsMap(insertResponse,
                             insertRequest.getRecords());
@@ -199,19 +200,24 @@ public class VaultHelper {
             for (List<Row> batch : Helper.getBatches(tokenizedData, batchSize)) {
                 List<Row> batchOutputRows;
                 // Construct and send detokenize request
-                DetokenizeRequest detokenizeRequest = Helper.constructDetokenizeRequest(schemaMappings, batch);
+                BulkDetokenizeRequest detokenizeRequest = Helper.constructDetokenizeRequest(schemaMappings, batch);
                 if(detokenizeRequest.getTokens().isEmpty()) {
                     batchOutputRows = Helper.replaceTokensWithData(schemaMappings, batch, new HashMap<>(), new HashMap<>());
                 } else {
                     logger.info(LOG_PREFIX + "Processing batch #" + batchNumber + ", No.of records: "
                             + detokenizeRequest.getTokens().size());
-                    DetokenizeResponse detokenizeResponse = skyflowClient.vault().bulkDetokenize(detokenizeRequest);
+                    BulkDetokenizeResponse detokenizeResponse = skyflowClient.vault().bulkDetokenize(detokenizeRequest);
 
                     // Process success and error responses
-                    Map<String, DetokenizeResponseObject> successMap = Helper.getDetokenizeSuccessMap(detokenizeResponse);
-                    Map<String, ErrorRecord> errorsMap = Helper.geDetokenizeErrorsMap(detokenizeResponse,
+                    Map<String, BulkDetokenizeResponseRecord> successMap = Helper.getDetokenizeSuccessMap(detokenizeResponse);
+                    Map<String, ErrorRecord> errorsMap = Helper.getDetokenizeErrorsMap(detokenizeResponse,
                             detokenizeRequest.getTokens());
                     logger.fine(LOG_PREFIX + "Success count: " + successMap.size() + " Error count: " + errorsMap.size());
+                    if (successMap.size() + errorsMap.size() != detokenizeRequest.getTokens().size()) {
+                        logger.warning(LOG_PREFIX + "Detokenize response accounted for "
+                                + (successMap.size() + errorsMap.size()) + " of " + detokenizeRequest.getTokens().size()
+                                + " requested tokens; some tokens got no response entry.");
+                    }
                     // Retry failed tokens if necessary
                     if (detokenizeResponse.getSummary().getTotalFailed() > 0) {
                         retryFailedTokens(detokenizeRequest, successMap, errorsMap);
@@ -232,12 +238,15 @@ public class VaultHelper {
     }
 
     // Helper method to retry failed records with exponential backoff and jitter
-    private void retryFailedRecords(InsertRequest request,
-            Map<Object, Success> successMap,
+    private void retryFailedRecords(BulkInsertRequest request,
+            Map<Object, BulkInsertResponseRecord> successMap,
             Map<Object, ErrorRecord> errorsMap) throws SkyflowException {
         int currentRetry = 0;
+        // errorsMap indices are relative to whichever batch was most recently sent, not the
+        // original request, so the lookup list must track the current batch across rounds.
+        List<InsertRequestRecord> currentBatch = request.getRecords();
         while (!errorsMap.isEmpty() && currentRetry < retryCount) {
-            InsertRequest retryRequest = Helper.constructInsertRetryRequest(request.getRecords(), errorsMap);
+            BulkInsertRequest retryRequest = Helper.constructInsertRetryRequest(currentBatch, errorsMap);
             if (retryRequest.getRecords().isEmpty()) {
                 logger.fine(LOG_PREFIX + NO_RETRIES_NEEDED_PROCEEDING);
                 break;
@@ -245,9 +254,10 @@ public class VaultHelper {
                 logger.fine(
                         LOG_PREFIX + "Retrying " + retryRequest.getRecords().size() + " failed records. Attempt: "
                                 + (currentRetry + 1));
-                InsertResponse retryResponse = skyflowClient.vault().bulkInsert(retryRequest);
+                BulkInsertResponse retryResponse = skyflowClient.vault().bulkInsert(retryRequest);
                 Helper.sleepWithExponentialBackoff(currentRetry);
                 Helper.mergeInsertRetryResults(retryRequest.getRecords(), retryResponse, successMap, errorsMap);
+                currentBatch = retryRequest.getRecords();
                 logger.fine(LOG_PREFIX + "After retry, Success count: " + successMap.size() + " Error count: "
                         + errorsMap.size());
                 currentRetry++;
@@ -256,8 +266,8 @@ public class VaultHelper {
     }
 
     // Helper method to retry failed tokens with exponential backoff and jitter
-    private void retryFailedTokens(DetokenizeRequest detokenizeRequest,
-            Map<String, DetokenizeResponseObject> successMap, Map<String, ErrorRecord> errorsMap)
+    private void retryFailedTokens(BulkDetokenizeRequest detokenizeRequest,
+            Map<String, BulkDetokenizeResponseRecord> successMap, Map<String, ErrorRecord> errorsMap)
             throws SkyflowException {
         int currentRetry = 0;
         while (!errorsMap.isEmpty() && currentRetry < retryCount) {
@@ -273,12 +283,19 @@ public class VaultHelper {
                         LOG_PREFIX + "Retrying " + retryableTokens.size() + " failed tokens. Attempt: "
                                 + (currentRetry + 1));
                 Helper.sleepWithExponentialBackoff(currentRetry);
-                DetokenizeResponse retryResponse = skyflowClient.vault()
-                        .bulkDetokenize(DetokenizeRequest.builder().tokens(retryableTokens)
+                BulkDetokenizeResponse retryResponse = skyflowClient.vault()
+                        .bulkDetokenize(BulkDetokenizeRequest.builder().tokens(retryableTokens)
                                 .tokenGroupRedactions(detokenizeRequest.getTokenGroupRedactions()).build());
                 Helper.mergeDetokenizeRetryResults(retryResponse, retryableTokens, successMap, errorsMap);
                 logger.fine(LOG_PREFIX + "After retry, Success count: " + successMap.size() + " Error count: "
                         + errorsMap.size());
+                long unaccountedForTokens = retryableTokens.stream()
+                        .filter(token -> !successMap.containsKey(token) && !errorsMap.containsKey(token))
+                        .count();
+                if (unaccountedForTokens > 0) {
+                    logger.warning(LOG_PREFIX + unaccountedForTokens + " of " + retryableTokens.size()
+                            + " retried tokens got no response entry (success or error) after this retry.");
+                }
                 currentRetry++;
             }
         }

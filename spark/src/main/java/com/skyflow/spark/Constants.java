@@ -17,6 +17,7 @@ public class Constants {
     public static final long MAX_DELAY_MILLI_SECONDS = 10000; // max delay
     // Set of retryable error codes
     public static final HashSet<Integer> RETRYABLE_ERROR_CODES = new HashSet<>(Arrays.asList(
+            409,
             429,
             500,
             502,

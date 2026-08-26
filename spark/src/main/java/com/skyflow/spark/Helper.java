@@ -3,14 +3,17 @@ package com.skyflow.spark;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.skyflow.errors.SkyflowException;
 import com.skyflow.vault.data.ErrorRecord;
-import com.skyflow.vault.data.InsertResponse;
-import com.skyflow.vault.data.InsertRequest;
-import com.skyflow.vault.data.InsertRecord;
-import com.skyflow.vault.data.DetokenizeRequest;
-import com.skyflow.vault.data.DetokenizeResponse;
-import com.skyflow.vault.data.DetokenizeResponseObject;
+import com.skyflow.vault.data.BulkInsertRequest;
+import com.skyflow.vault.data.BulkInsertRequestRecord;
+import com.skyflow.vault.data.BulkInsertResponse;
+import com.skyflow.vault.data.BulkInsertResponseRecord;
+import com.skyflow.vault.data.InsertRequestRecord;
+import com.skyflow.vault.data.InsertResponseRecord;
+import com.skyflow.vault.data.BulkDetokenizeRequest;
+import com.skyflow.vault.data.BulkDetokenizeResponse;
+import com.skyflow.vault.data.BulkDetokenizeResponseRecord;
 import com.skyflow.vault.data.TokenGroupRedactions;
-import com.skyflow.vault.data.Success;
+import com.skyflow.vault.data.UpsertOptions;
 import com.skyflow.vault.data.Token;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -147,24 +150,24 @@ public class Helper {
      * Tokenize util methods
      */
 
-    // Constructs an InsertRequest object from a batch of rows and column mappings
-    public static InsertRequest constructInsertRequest(Map<String, ColumnMapping> schemaMappings, List<Row> batch) {
-        ArrayList<InsertRecord> records = new ArrayList<>();
+    // Constructs a BulkInsertRequest object from a batch of rows and column mappings
+    public static BulkInsertRequest constructInsertRequest(Map<String, ColumnMapping> schemaMappings, List<Row> batch) {
+        ArrayList<InsertRequestRecord> records = new ArrayList<>();
 
         // Track seen values per table + vault column
         Map<String, Map<String, Set<Object>>> valuesDedupMap = new HashMap<>();
         for (Row row : batch) {
-            List<InsertRecord> rowRecords = constructInsertRecordsForRow(row, valuesDedupMap, schemaMappings);
+            List<InsertRequestRecord> rowRecords = constructInsertRecordsForRow(row, valuesDedupMap, schemaMappings);
             records.addAll(rowRecords);
         }
-        return InsertRequest.builder()
+        return BulkInsertRequest.builder()
                 .records(records)
                 .build();
     }
 
-    private static List<InsertRecord> constructInsertRecordsForRow(Row row,
+    private static List<InsertRequestRecord> constructInsertRecordsForRow(Row row,
             Map<String, Map<String, Set<Object>>> seenValues, Map<String, ColumnMapping> schemaMappings) {
-        List<InsertRecord> records = new ArrayList<>();
+        List<InsertRequestRecord> records = new ArrayList<>();
         for (Map.Entry<String, ColumnMapping> entry : schemaMappings.entrySet()) {
 
             String datasetColumn = entry.getKey();
@@ -192,48 +195,57 @@ public class Helper {
             HashMap<String, Object> record = new HashMap<>();
             record.put(vaultColumn, row.getAs(datasetColumn));
             if(skyflowColumnMapping.getIsUnique() != null && skyflowColumnMapping.getIsUnique() == true) {
-                records.add(InsertRecord.builder().data(record).table(skyflowColumnMapping.getTableName())
-                        .upsert(Collections.singletonList(skyflowColumnMapping.getColumnName())).build());
+                records.add(BulkInsertRequestRecord.builder().data(record).tableName(skyflowColumnMapping.getTableName())
+                        .upsert(UpsertOptions.builder()
+                                .uniqueColumns(Collections.singletonList(skyflowColumnMapping.getColumnName()))
+                                .build())
+                        .build());
             } else {
-                records.add(InsertRecord.builder().data(record).table(skyflowColumnMapping.getTableName()).build());
+                records.add(BulkInsertRequestRecord.builder().data(record).tableName(skyflowColumnMapping.getTableName()).build());
             }
         }
         return records;
     }
 
-    // Converts InsertResponse success records into a map for quick lookup
-    public static Map<Object, Success> getInsertSuccessMap(InsertResponse insertResponse,
-            ArrayList<InsertRecord> records) {
-        Map<Object, Success> successMap = new HashMap<>();
-        for (Success success : insertResponse.getSuccess()) {
-            InsertRecord record = records.get(success.getIndex());
+    // Converts BulkInsertResponse records into a success map for quick lookup
+    public static Map<Object, BulkInsertResponseRecord> getInsertSuccessMap(BulkInsertResponse insertResponse,
+            List<InsertRequestRecord> records) {
+        Map<Object, BulkInsertResponseRecord> successMap = new HashMap<>();
+        for (BulkInsertResponseRecord responseRecord : insertResponse.getRecords()) {
+            if (responseRecord.getError() != null) {
+                continue;
+            }
+            InsertRequestRecord record = records.get(responseRecord.getIndex());
             // Get the only value from the record
             Object value = record.getData().values().iterator().next();
             // key also includes table name, as we are deduping per table
-            String key = concatWithUnderscore(record.getTable(), value);
-            successMap.put(key, success);
+            String key = concatWithUnderscore(record.getTableName(), value);
+            successMap.put(key, responseRecord);
         }
         return successMap;
     }
 
-    // Converts InsertResponse error records into a map for quick lookup
-    public static Map<Object, ErrorRecord> getInsertErrorsMap(InsertResponse insertResponse,
-            ArrayList<InsertRecord> records) {
+    // Converts BulkInsertResponse records into an error map for quick lookup
+    public static Map<Object, ErrorRecord> getInsertErrorsMap(BulkInsertResponse insertResponse,
+            List<InsertRequestRecord> records) {
         Map<Object, ErrorRecord> errorsMap = new HashMap<>();
-        for (ErrorRecord errorRecord : insertResponse.getErrors()) {
-            InsertRecord record = records.get(errorRecord.getIndex());
+        for (BulkInsertResponseRecord responseRecord : insertResponse.getRecords()) {
+            if (responseRecord.getError() == null) {
+                continue;
+            }
+            InsertRequestRecord record = records.get(responseRecord.getIndex());
             // Get the only value from the record
             Object value = record.getData().values().iterator().next();
             // key also includes table name, as we are deduping per table
-            String key = concatWithUnderscore(record.getTable(), value);
-            errorsMap.put(key, errorRecord);
+            String key = concatWithUnderscore(record.getTableName(), value);
+            errorsMap.put(key, new ErrorRecord(responseRecord.getIndex(), responseRecord.getError(), responseRecord.getHttpCode()));
         }
         return errorsMap;
     }
 
     // Replaces data in rows with tokens based on success and error maps
     public static List<Row> replaceDataWithTokens(Map<String, ColumnMapping> schemaMappings, List<Row> batch,
-            Map<Object, Success> successMap, Map<Object, ErrorRecord> errorsMap) {
+            Map<Object, BulkInsertResponseRecord> successMap, Map<Object, ErrorRecord> errorsMap) {
         List<Row> outputRows = new ArrayList<>();
 
         for (Row row : batch) {
@@ -281,9 +293,9 @@ public class Helper {
         return outputRows;
     }
 
-    // Gets tokens for a given success object and mapping
-    public static String getToken(Success success, ColumnMapping skyflowColumnMapping) {
-        List<Token> tokenObj = success.getTokens().get(skyflowColumnMapping.getColumnName());
+    // Gets the token for a given successful insert record and mapping
+    public static String getToken(InsertResponseRecord successRecord, ColumnMapping skyflowColumnMapping) {
+        List<Token> tokenObj = successRecord.getTokens().get(skyflowColumnMapping.getColumnName());
         // failing if there are no tokens
         if (tokenObj != null && !tokenObj.isEmpty()) {
             String targetGroup = skyflowColumnMapping.getTokenGroupName();
@@ -320,47 +332,47 @@ public class Helper {
     }
 
     // Builds a retry request for failed records with retryable error codes
-    public static InsertRequest constructInsertRetryRequest(
-            List<InsertRecord> allRecords,
+    public static BulkInsertRequest constructInsertRetryRequest(
+            List<InsertRequestRecord> allRecords,
             Map<Object, ErrorRecord> errorsMap) {
-        ArrayList<InsertRecord> retryRecords = new ArrayList<>();
+        ArrayList<InsertRequestRecord> retryRecords = new ArrayList<>();
         for (ErrorRecord errorRecord : errorsMap.values()) {
             if (Constants.RETRYABLE_ERROR_CODES.contains(errorRecord.getCode())) {
-                InsertRecord originalRecord = allRecords.get(errorRecord.getIndex());
+                InsertRequestRecord originalRecord = allRecords.get(errorRecord.getIndex());
                 retryRecords.add(originalRecord);
             }
         }
-        return InsertRequest.builder()
+        return BulkInsertRequest.builder()
                 .records(retryRecords)
                 .build();
     }
 
     // Merges retry results into the original success and error maps for insert
     public static void mergeInsertRetryResults(
-            List<InsertRecord> records,
-            InsertResponse retryResponse,
-            Map<Object, Success> successMap,
+            List<InsertRequestRecord> records,
+            BulkInsertResponse retryResponse,
+            Map<Object, BulkInsertResponseRecord> successMap,
             Map<Object, ErrorRecord> errorsMap) {
-        ArrayList<InsertRecord> retryRecords = new ArrayList<>(records);
-        Map<Object, Success> retrySuccessMap = getInsertSuccessMap(
+        ArrayList<InsertRequestRecord> retryRecords = new ArrayList<>(records);
+        Map<Object, BulkInsertResponseRecord> retrySuccessMap = getInsertSuccessMap(
                 retryResponse, retryRecords);
         Map<Object, ErrorRecord> retryErrorsMap = getInsertErrorsMap(
                 retryResponse, retryRecords);
-        for (Success success : retrySuccessMap.values()) {
-            InsertRecord record = retryRecords.get(success.getIndex());
+        for (BulkInsertResponseRecord success : retrySuccessMap.values()) {
+            InsertRequestRecord record = retryRecords.get(success.getIndex());
             // Get the only value from the record
             Object value = record.getData().values().iterator().next();
             // key also includes table name, as we are deduping per table
-            String key = concatWithUnderscore(record.getTable(), value);
+            String key = concatWithUnderscore(record.getTableName(), value);
             successMap.put(key, success);
             errorsMap.remove(key);
         }
         for (ErrorRecord errorRecord : retryErrorsMap.values()) {
-            InsertRecord record = retryRecords.get(errorRecord.getIndex());
+            InsertRequestRecord record = retryRecords.get(errorRecord.getIndex());
             // Get the only value from the record
             Object value = record.getData().values().iterator().next();
             // key also includes table name, as we are deduping per table
-            String key = concatWithUnderscore(record.getTable(), value);
+            String key = concatWithUnderscore(record.getTableName(), value);
             errorsMap.put(key, errorRecord);
         }
         logger.fine(LOG_PREFIX + "Merged " + retrySuccessMap.size() + " success entries and " + retryErrorsMap.size()
@@ -373,7 +385,7 @@ public class Helper {
 
     // Constructs a set of tokens for detokenization from a batch of rows and column
     // mappings
-    public static DetokenizeRequest constructDetokenizeRequest(Map<String, ColumnMapping> schemaMappings,
+    public static BulkDetokenizeRequest constructDetokenizeRequest(Map<String, ColumnMapping> schemaMappings,
             List<Row> batch) {
         Set<String> tokens = new HashSet<>();
         for (Row row : batch) {
@@ -394,24 +406,28 @@ public class Helper {
             }
         }
         List<String> tokensList = new ArrayList<>(tokens);
-        return DetokenizeRequest.builder().tokens(tokensList).tokenGroupRedactions(tokenGroupRedactions).build();
+        return BulkDetokenizeRequest.builder().tokens(tokensList).tokenGroupRedactions(tokenGroupRedactions).build();
     }
 
-    // Converts DetokenizeResponse success records into a map for quick lookup
-    public static Map<String, DetokenizeResponseObject> getDetokenizeSuccessMap(DetokenizeResponse detokenizeResponse) {
-        Map<String, DetokenizeResponseObject> successMap = new HashMap<>();
-        for (DetokenizeResponseObject detokenizeResponseObject : detokenizeResponse.getSuccess()) {
-            successMap.put(detokenizeResponseObject.getToken(), detokenizeResponseObject);
+    // Converts BulkDetokenizeResponse records into a success map for quick lookup
+    public static Map<String, BulkDetokenizeResponseRecord> getDetokenizeSuccessMap(BulkDetokenizeResponse detokenizeResponse) {
+        Map<String, BulkDetokenizeResponseRecord> successMap = new HashMap<>();
+        for (BulkDetokenizeResponseRecord record : detokenizeResponse.getRecords()) {
+            if (record.getError() == null) {
+                successMap.put(record.getToken(), record);
+            }
         }
         return successMap;
     }
 
-    // Converts DetokenizeResponse error records into a map for quick lookup
-    public static Map<String, ErrorRecord> geDetokenizeErrorsMap(DetokenizeResponse detokenizeResponse,
+    // Converts BulkDetokenizeResponse records into an error map for quick lookup
+    public static Map<String, ErrorRecord> getDetokenizeErrorsMap(BulkDetokenizeResponse detokenizeResponse,
             List<String> tokens) {
         Map<String, ErrorRecord> errorsMap = new HashMap<>();
-        for (ErrorRecord errorRecord : detokenizeResponse.getErrors()) {
-            errorsMap.put(tokens.get(errorRecord.getIndex()), errorRecord);
+        for (BulkDetokenizeResponseRecord record : detokenizeResponse.getRecords()) {
+            if (record.getError() != null) {
+                errorsMap.put(tokens.get(record.getIndex()), new ErrorRecord(record.getIndex(), record.getError(), record.getHttpCode()));
+            }
         }
         return errorsMap;
     }
@@ -420,7 +436,7 @@ public class Helper {
     public static List<Row> replaceTokensWithData(
             Map<String, ColumnMapping> schemaMappings,
             List<Row> batch,
-            Map<String, DetokenizeResponseObject> successMap,
+            Map<String, BulkDetokenizeResponseRecord> successMap,
             Map<String, ErrorRecord> errorsMap) {
 
         List<Row> outputRows = new ArrayList<>();
@@ -474,13 +490,13 @@ public class Helper {
 
     // Merges retry results into the original success and error maps for
     // detokenization operations
-    public static void mergeDetokenizeRetryResults(DetokenizeResponse detokenizeResponse, List<String> tokens,
-            Map<String, DetokenizeResponseObject> successMap, Map<String, ErrorRecord> errorsMap) {
-        Map<String, DetokenizeResponseObject> retrySuccessMap = getDetokenizeSuccessMap(detokenizeResponse);
-        Map<String, ErrorRecord> retryErrorsMap = geDetokenizeErrorsMap(detokenizeResponse, tokens);
-        for (DetokenizeResponseObject detokenizeResponseObject : retrySuccessMap.values()) {
-            String token = detokenizeResponseObject.getToken();
-            successMap.put(token, detokenizeResponseObject);
+    public static void mergeDetokenizeRetryResults(BulkDetokenizeResponse detokenizeResponse, List<String> tokens,
+            Map<String, BulkDetokenizeResponseRecord> successMap, Map<String, ErrorRecord> errorsMap) {
+        Map<String, BulkDetokenizeResponseRecord> retrySuccessMap = getDetokenizeSuccessMap(detokenizeResponse);
+        Map<String, ErrorRecord> retryErrorsMap = getDetokenizeErrorsMap(detokenizeResponse, tokens);
+        for (BulkDetokenizeResponseRecord record : retrySuccessMap.values()) {
+            String token = record.getToken();
+            successMap.put(token, record);
             errorsMap.remove(token);
         }
         for (ErrorRecord errorRecord : retryErrorsMap.values()) {

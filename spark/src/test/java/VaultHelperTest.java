@@ -25,15 +25,15 @@ import com.skyflow.enums.LogLevel;
 import com.skyflow.errors.SkyflowException;
 import com.skyflow.vault.controller.VaultController;
 import com.skyflow.vault.data.ErrorRecord;
-import com.skyflow.vault.data.InsertRequest;
-import com.skyflow.vault.data.InsertRecord;
-import com.skyflow.vault.data.InsertResponse;
-import com.skyflow.vault.data.DetokenizeRequest;
-import com.skyflow.vault.data.DetokenizeResponse;
-import com.skyflow.vault.data.DetokenizeResponseObject;
-import com.skyflow.vault.data.Summary;
+import com.skyflow.vault.data.BulkInsertRequest;
+import com.skyflow.vault.data.InsertRequestRecord;
+import com.skyflow.vault.data.BulkInsertResponse;
+import com.skyflow.vault.data.BulkInsertResponseRecord;
+import com.skyflow.vault.data.BulkDetokenizeRequest;
+import com.skyflow.vault.data.BulkDetokenizeResponse;
+import com.skyflow.vault.data.BulkDetokenizeResponseRecord;
+import com.skyflow.vault.data.BulkSummary;
 import com.skyflow.vault.data.DetokenizeSummary;
-import com.skyflow.vault.data.Success;
 import com.skyflow.vault.data.Token;
 
 import org.apache.spark.sql.Dataset;
@@ -62,6 +62,7 @@ import java.util.HashSet;
 import java.util.Properties;
 import java.util.Set;
 import java.util.Collections;
+import java.util.stream.Collectors;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -77,10 +78,10 @@ class VaultHelperTest {
     private VaultController vaultMock;
 
     @Mock
-    private InsertResponse insertResponseMock;
+    private BulkInsertResponse insertResponseMock;
 
     @Mock
-    private DetokenizeResponse detokenizeResponseMock;
+    private BulkDetokenizeResponse detokenizeResponseMock;
 
     @Mock
     private TableHelper tableHelperMock;
@@ -199,6 +200,43 @@ class VaultHelperTest {
         properties.setProperty(Constants.COLUMN_MAPPING, "{}");
         return properties;
     }
+
+    private BulkInsertResponseRecord mockInsertSuccess(int index, String column, String token) {
+        return mockInsertSuccess(index, column, token, null);
+    }
+
+    private BulkInsertResponseRecord mockInsertSuccess(int index, String column, String token, String tokenGroupName) {
+        BulkInsertResponseRecord record = mock(BulkInsertResponseRecord.class);
+        when(record.getIndex()).thenReturn(index);
+        when(record.getTokens()).thenReturn(Collections.singletonMap(column, Collections.singletonList(new Token(token, tokenGroupName))));
+        return record;
+    }
+
+    private BulkInsertResponseRecord mockInsertError(int index, int httpCode, String error) {
+        BulkInsertResponseRecord record = mock(BulkInsertResponseRecord.class);
+        when(record.getIndex()).thenReturn(index);
+        when(record.getHttpCode()).thenReturn(httpCode);
+        when(record.getError()).thenReturn(error != null ? error : "error");
+        return record;
+    }
+
+    private BulkDetokenizeResponseRecord mockDetokenizeSuccess(String token, Object value) {
+        BulkDetokenizeResponseRecord record = mock(BulkDetokenizeResponseRecord.class);
+        when(record.getToken()).thenReturn(token);
+        when(record.getValue()).thenReturn(value);
+        return record;
+    }
+
+    // index must match the token's position in the actual request's token list, since
+    // getDetokenizeErrorsMap keys failures by index into that list (see Helper.java).
+    private BulkDetokenizeResponseRecord mockDetokenizeError(int index, int httpCode, String error) {
+        BulkDetokenizeResponseRecord record = mock(BulkDetokenizeResponseRecord.class);
+        when(record.getIndex()).thenReturn(index);
+        when(record.getHttpCode()).thenReturn(httpCode);
+        when(record.getError()).thenReturn(error != null ? error : "error");
+        return record;
+    }
+
     // Builder and initialization tests
 
     @Test
@@ -258,7 +296,7 @@ class VaultHelperTest {
 
         assertEquals("vault-id", configUsed.getVaultId());
         assertEquals("cluster-id", configUsed.getClusterId());
-        assertEquals("vault-url", configUsed.getVaultURL());
+        assertEquals("vault-url", configUsed.getVaultUrl());
         assertEquals(Env.DEV, configUsed.getEnv());
         assertNotNull(configUsed.getCredentials());
         assertEquals("cred-string", configUsed.getCredentials().getCredentialsString());
@@ -310,24 +348,15 @@ class VaultHelperTest {
         mockInitializeSkyflowClientForTest();
         Dataset<Row> data = createSampleInputDataset();
 
-        List<Success> successes = new ArrayList<>();
+        List<BulkInsertResponseRecord> successes = new ArrayList<>();
         for (int i = 0; i < 3; i++) {
-            Success success = mock(Success.class);
-            when(success.getIndex()).thenReturn(i);
-            Token token = mock(Token.class);
-            when(token.getToken()).thenReturn("token" + i);
-            when(token.getTokenGroupName()).thenReturn("name");
-            Map<String, List<Token>> tokensMap = new HashMap<>();
-            tokensMap.put("name", Collections.singletonList(token));
-            when(success.getTokens()).thenReturn(tokensMap);
-            successes.add(success);
+            successes.add(mockInsertSuccess(i, "name", "token" + i, "name"));
         }
 
-        Summary summary = mock(Summary.class);
+        BulkSummary summary = mock(BulkSummary.class);
         when(summary.getTotalFailed()).thenReturn(0);
 
-        when(insertResponseMock.getSuccess()).thenReturn(successes);
-        when(insertResponseMock.getErrors()).thenReturn(Collections.emptyList());
+        when(insertResponseMock.getRecords()).thenReturn(successes);
         when(insertResponseMock.getSummary()).thenReturn(summary);
 
         when(vaultMock.bulkInsert(any())).thenReturn(insertResponseMock);
@@ -364,32 +393,24 @@ class VaultHelperTest {
                         "\"redaction\": \"override_redaction\"}" +
                         "}");
 
-        Summary summary = mock(Summary.class);
+        BulkSummary summary = mock(BulkSummary.class);
         when(summary.getTotalFailed()).thenReturn(0);
 
-        Success success = mock(Success.class);
-        when(success.getIndex()).thenReturn(0);
-        Token token = mock(Token.class);
-        when(token.getToken()).thenReturn("token-12345");
-        when(token.getTokenGroupName()).thenReturn("override_group");
-        Map<String, List<Token>> tokens = new HashMap<>();
-        tokens.put("customer_column_override", Collections.singletonList(token));
-        when(success.getTokens()).thenReturn(tokens);
+        BulkInsertResponseRecord success = mockInsertSuccess(0, "customer_column_override", "token-12345", "override_group");
 
-        when(insertResponseMock.getSuccess()).thenReturn(Collections.singletonList(success));
-        when(insertResponseMock.getErrors()).thenReturn(Collections.emptyList());
+        when(insertResponseMock.getRecords()).thenReturn(Collections.singletonList(success));
         when(insertResponseMock.getSummary()).thenReturn(summary);
 
-        ArgumentCaptor<InsertRequest> insertRequestCaptor = ArgumentCaptor.forClass(InsertRequest.class);
+        ArgumentCaptor<BulkInsertRequest> insertRequestCaptor = ArgumentCaptor.forClass(BulkInsertRequest.class);
         when(vaultMock.bulkInsert(any())).thenReturn(insertResponseMock);
 
         Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, properties);
 
         verify(vaultMock).bulkInsert(insertRequestCaptor.capture());
-        InsertRequest capturedRequest = insertRequestCaptor.getValue();
+        BulkInsertRequest capturedRequest = insertRequestCaptor.getValue();
         assertEquals(1, capturedRequest.getRecords().size());
-        InsertRecord record = capturedRequest.getRecords().get(0);
-        assertEquals("customer_table_override", record.getTable());
+        InsertRequestRecord record = capturedRequest.getRecords().get(0);
+        assertEquals("customer_table_override", record.getTableName());
         assertTrue(record.getData().containsKey("customer_column_override"));
         assertEquals("12345", record.getData().get("customer_column_override"));
 
@@ -446,40 +467,24 @@ class VaultHelperTest {
                         "\"ph_nbr\": {\"tableName\": \"phone_number\", \"columnName\": \"phone_number\"}" +
                         "}");
 
-        Success successPrimary = mock(Success.class);
-        when(successPrimary.getIndex()).thenReturn(0);
-        Token tokenPrimary = mock(Token.class);
-        when(tokenPrimary.getToken()).thenReturn("token-primary");
-        Map<String, List<Token>> tokensPrimary = new HashMap<>();
-        tokensPrimary.put("name", Collections.singletonList(tokenPrimary));
-        when(successPrimary.getTokens()).thenReturn(tokensPrimary);
-        when(successPrimary.getTable()).thenReturn("name");
+        BulkInsertResponseRecord successPrimary = mockInsertSuccess(0, "name", "token-primary");
+        BulkInsertResponseRecord successAlias = mockInsertSuccess(1, "phone_number", "token-alias");
 
-        Success successAlias = mock(Success.class);
-        when(successAlias.getIndex()).thenReturn(1);
-        Token tokenAlias = mock(Token.class);
-        when(tokenAlias.getToken()).thenReturn("token-alias");
-        Map<String, List<Token>> tokensAlias = new HashMap<>();
-        tokensAlias.put("phone_number", Collections.singletonList(tokenAlias));
-        when(successAlias.getTokens()).thenReturn(tokensAlias);
-        when(successAlias.getTable()).thenReturn("phone_number");
-
-        Summary summary = mock(Summary.class);
+        BulkSummary summary = mock(BulkSummary.class);
         when(summary.getTotalFailed()).thenReturn(0);
 
-        InsertResponse response = mock(InsertResponse.class);
-        when(response.getSuccess())
+        BulkInsertResponse response = mock(BulkInsertResponse.class);
+        when(response.getRecords())
                 .thenReturn(Arrays.asList(successPrimary, successAlias));
-        when(response.getErrors()).thenReturn(Collections.emptyList());
         when(response.getSummary()).thenReturn(summary);
 
-        ArgumentCaptor<InsertRequest> requestCaptor = ArgumentCaptor.forClass(InsertRequest.class);
+        ArgumentCaptor<BulkInsertRequest> requestCaptor = ArgumentCaptor.forClass(BulkInsertRequest.class);
         when(vaultMock.bulkInsert(any())).thenReturn(response);
 
         Dataset<Row> result = vaultHelper.tokenize(tableHelperMock, data, properties);
 
         verify(vaultMock).bulkInsert(requestCaptor.capture());
-        InsertRequest captured = requestCaptor.getValue();
+        BulkInsertRequest captured = requestCaptor.getValue();
         assertEquals(2, captured.getRecords().size());
 
         List<Row> rows = result.collectAsList();
@@ -497,67 +502,38 @@ class VaultHelperTest {
         Dataset<Row> data = createSampleInputDataset();
 
         // Batch 1 initial: 1 success (index 0), 2 errors (1,2)
-        Success success0 = mock(Success.class);
-        when(success0.getIndex()).thenReturn(0);
-        Token token0 = mock(Token.class);
-        when(token0.getToken()).thenReturn("token0");
-        when(token0.getTokenGroupName()).thenReturn("name");
-        HashMap<String, List<Token>> tokensMap = new HashMap<>();
-        tokensMap.put("name", Collections.singletonList(token0));
-        when(success0.getTokens()).thenReturn(tokensMap);
+        BulkInsertResponseRecord success0 = mockInsertSuccess(0, "name", "token0", "name");
+        BulkInsertResponseRecord err1 = mockInsertError(1, 503, "Service unavailable"); // retryable error
+        BulkInsertResponseRecord err2 = mockInsertError(2, 503, "Service unavailable"); // retryable error
 
-        ErrorRecord err1 = mock(ErrorRecord.class);
-        when(err1.getIndex()).thenReturn(1);
-        when(err1.getCode()).thenReturn(503); // retryable error
-
-        ErrorRecord err2 = mock(ErrorRecord.class);
-        when(err2.getIndex()).thenReturn(2);
-        when(err2.getCode()).thenReturn(503); // retryable error
-
-        Summary summaryInitial = mock(Summary.class);
+        BulkSummary summaryInitial = mock(BulkSummary.class);
         when(summaryInitial.getTotalFailed()).thenReturn(2);
 
-        when(insertResponseMock.getSuccess()).thenReturn(Collections.singletonList(success0));
-        when(insertResponseMock.getErrors()).thenReturn(Arrays.asList(err1, err2));
+        when(insertResponseMock.getRecords()).thenReturn(Arrays.asList(success0, err1, err2));
         when(insertResponseMock.getSummary()).thenReturn(summaryInitial);
 
         // Retry 1: success for index 1, error for index 2
-        Success retrySuccess1 = mock(Success.class);
-        when(retrySuccess1.getIndex()).thenReturn(0); // retry request indices remapped to 0 and 1
-        Token token1 = mock(Token.class);
-        when(token1.getToken()).thenReturn("token1");
-        when(token1.getTokenGroupName()).thenReturn("name");
-        HashMap<String, List<Token>> tokensMap1 = new HashMap<>();
-        tokensMap1.put("name", Collections.singletonList(token1));
-        when(retrySuccess1.getTokens()).thenReturn(tokensMap1);
+        // retry request indices remapped to 0 and 1
+        BulkInsertResponseRecord retrySuccess1 = mockInsertSuccess(0, "name", "token1", "name");
+        BulkInsertResponseRecord retryErr2 = mockInsertError(1, 503, "Service unavailable");
 
-        ErrorRecord retryErr2 = mock(ErrorRecord.class);
-        when(retryErr2.getIndex()).thenReturn(1);
-        when(retryErr2.getCode()).thenReturn(503);
-
-        Summary summaryRetry1 = mock(Summary.class);
+        BulkSummary summaryRetry1 = mock(BulkSummary.class);
         when(summaryRetry1.getTotalFailed()).thenReturn(1);
 
-        InsertResponse retryResponse1 = mock(InsertResponse.class);
-        when(retryResponse1.getSuccess()).thenReturn(Collections.singletonList(retrySuccess1));
-        when(retryResponse1.getErrors()).thenReturn(Collections.singletonList(retryErr2));
+        BulkInsertResponse retryResponse1 = mock(BulkInsertResponse.class);
+        when(retryResponse1.getRecords()).thenReturn(Arrays.asList(retrySuccess1, retryErr2));
         when(retryResponse1.getSummary()).thenReturn(summaryRetry1);
 
         // Retry 2: error for index 2 (final)
-        ErrorRecord retryErr3 = mock(ErrorRecord.class);
-        when(retryErr3.getIndex()).thenReturn(0);
-        when(retryErr3.getCode()).thenReturn(503);
+        BulkInsertResponseRecord retryErr3 = mockInsertError(0, 503, "Service unavailable");
 
-        Summary summaryRetry2 = mock(Summary.class);
+        BulkSummary summaryRetry2 = mock(BulkSummary.class);
         when(summaryRetry2.getTotalFailed()).thenReturn(0);
 
-        InsertResponse retryResponse2 = mock(InsertResponse.class);
-        when(retryResponse2.getSuccess()).thenReturn(Collections.emptyList());
-        when(retryResponse2.getErrors()).thenReturn(Collections.singletonList(retryErr3));
+        BulkInsertResponse retryResponse2 = mock(BulkInsertResponse.class);
+        when(retryResponse2.getRecords()).thenReturn(Collections.singletonList(retryErr3));
         when(retryResponse2.getSummary()).thenReturn(summaryRetry2);
 
-        InsertRecord insertRecord = mock(InsertRecord.class);
-        when(insertRecord.getTable()).thenReturn("name");
         when(vaultMock.bulkInsert(any()))
                 .thenReturn(insertResponseMock) // Initial
                 .thenReturn(retryResponse1) // Retry 1
@@ -587,33 +563,86 @@ class VaultHelperTest {
     }
 
     @Test
+    void tokenize_second_retry_targets_the_still_failing_record_not_a_stale_index() throws SkyflowException {
+        mockInitializeSkyflowClientForTest();
+
+        StructType schema = new StructType(new StructField[] {
+                new StructField("name", DataTypes.StringType, true, Metadata.empty())
+        });
+        Dataset<Row> data = spark.createDataFrame(Arrays.asList(
+                RowFactory.create("Alice"), RowFactory.create("Bob"), RowFactory.create("Carol")), schema);
+
+        Properties properties = new Properties();
+        properties.setProperty(Constants.COLUMN_MAPPING,
+                "{\"name\": {\"tableName\": \"t\", \"columnName\": \"name\"}}");
+
+        // Initial: Alice (index 0) succeeds, Bob (index 1) and Carol (index 2) fail retryably.
+        BulkInsertResponseRecord success0 = mockInsertSuccess(0, "name", "tok-alice");
+        BulkInsertResponseRecord err1 = mockInsertError(1, 503, "Service unavailable");
+        BulkInsertResponseRecord err2 = mockInsertError(2, 503, "Service unavailable");
+
+        BulkSummary summaryInitial = mock(BulkSummary.class);
+        when(summaryInitial.getTotalFailed()).thenReturn(2);
+        when(insertResponseMock.getRecords()).thenReturn(Arrays.asList(success0, err1, err2));
+        when(insertResponseMock.getSummary()).thenReturn(summaryInitial);
+
+        // Retry 1 sends [Bob, Carol]. Bob (index 0 in this batch) succeeds, Carol (index 1) still fails.
+        BulkInsertResponseRecord retrySuccessBob = mockInsertSuccess(0, "name", "tok-bob");
+        BulkInsertResponseRecord retryErrCarol = mockInsertError(1, 503, "Service unavailable");
+
+        BulkSummary summaryRetry1 = mock(BulkSummary.class);
+        when(summaryRetry1.getTotalFailed()).thenReturn(1);
+        BulkInsertResponse retryResponse1 = mock(BulkInsertResponse.class);
+        when(retryResponse1.getRecords()).thenReturn(Arrays.asList(retrySuccessBob, retryErrCarol));
+        when(retryResponse1.getSummary()).thenReturn(summaryRetry1);
+
+        // Retry 2: only Carol should be in the request this time.
+        BulkInsertResponseRecord retry2ErrCarol = mockInsertError(0, 503, "Service unavailable");
+
+        BulkSummary summaryRetry2 = mock(BulkSummary.class);
+        when(summaryRetry2.getTotalFailed()).thenReturn(1);
+        BulkInsertResponse retryResponse2 = mock(BulkInsertResponse.class);
+        when(retryResponse2.getRecords()).thenReturn(Collections.singletonList(retry2ErrCarol));
+        when(retryResponse2.getSummary()).thenReturn(summaryRetry2);
+
+        when(vaultMock.bulkInsert(any()))
+                .thenReturn(insertResponseMock)
+                .thenReturn(retryResponse1)
+                .thenReturn(retryResponse2);
+
+        vaultHelper.tokenize(tableHelperMock, data, properties);
+
+        ArgumentCaptor<BulkInsertRequest> captor = ArgumentCaptor.forClass(BulkInsertRequest.class);
+        verify(vaultMock, times(3)).bulkInsert(captor.capture());
+        List<BulkInsertRequest> calls = captor.getAllValues();
+
+        assertEquals(Arrays.asList("Alice", "Bob", "Carol"), namesInRequest(calls.get(0)));
+        assertEquals(Arrays.asList("Bob", "Carol"), namesInRequest(calls.get(1)));
+        // Regression guard: the second retry must still target Carol (still failing),
+        // not Bob (who already succeeded on the first retry).
+        assertEquals(Collections.singletonList("Carol"), namesInRequest(calls.get(2)));
+    }
+
+    private List<String> namesInRequest(BulkInsertRequest request) {
+        return request.getRecords().stream()
+                .map(record -> (String) record.getData().values().iterator().next())
+                .collect(Collectors.toList());
+    }
+
+    @Test
     void tokenize_multiple_retries_no_retryable_errors() throws SkyflowException {
         mockInitializeSkyflowClientForTest();
         Dataset<Row> data = createSampleInputDataset();
 
         // Batch 1 initial: 1 success (index 0), 2 errors (1,2)
-        Success success0 = mock(Success.class);
-        when(success0.getIndex()).thenReturn(0);
-        Token token0 = mock(Token.class);
-        when(token0.getToken()).thenReturn("token0");
-        when(token0.getTokenGroupName()).thenReturn("name");
-        HashMap<String, List<Token>> tokensMap = new HashMap<>();
-        tokensMap.put("name", Collections.singletonList(token0));
-        when(success0.getTokens()).thenReturn(tokensMap);
+        BulkInsertResponseRecord success0 = mockInsertSuccess(0, "name", "token0", "name");
+        BulkInsertResponseRecord err1 = mockInsertError(1, 400, "Bad Request"); // non retryable error
+        BulkInsertResponseRecord err2 = mockInsertError(2, 400, "Bad Request"); // non retryable error
 
-        ErrorRecord err1 = mock(ErrorRecord.class);
-        when(err1.getIndex()).thenReturn(1);
-        when(err1.getCode()).thenReturn(400); // non retryable error
-
-        ErrorRecord err2 = mock(ErrorRecord.class);
-        when(err2.getIndex()).thenReturn(2);
-        when(err2.getCode()).thenReturn(400); // non retryable error
-
-        Summary summaryInitial = mock(Summary.class);
+        BulkSummary summaryInitial = mock(BulkSummary.class);
         when(summaryInitial.getTotalFailed()).thenReturn(2);
 
-        when(insertResponseMock.getSuccess()).thenReturn(Collections.singletonList(success0));
-        when(insertResponseMock.getErrors()).thenReturn(Arrays.asList(err1, err2));
+        when(insertResponseMock.getRecords()).thenReturn(Arrays.asList(success0, err1, err2));
         when(insertResponseMock.getSummary()).thenReturn(summaryInitial);
 
         when(vaultMock.bulkInsert(any()))
@@ -662,24 +691,21 @@ class VaultHelperTest {
                         "\"redaction\": \"override_redaction\"}" +
                         "}");
 
-        DetokenizeResponseObject responseObject = mock(DetokenizeResponseObject.class);
-        when(responseObject.getToken()).thenReturn("token-12345");
-        when(responseObject.getValue()).thenReturn("decoded-12345");
+        BulkDetokenizeResponseRecord responseObject = mockDetokenizeSuccess("token-12345", "decoded-12345");
 
         DetokenizeSummary summary = mock(DetokenizeSummary.class);
         when(summary.getTotalFailed()).thenReturn(0);
 
-        when(detokenizeResponseMock.getSuccess()).thenReturn(Collections.singletonList(responseObject));
-        when(detokenizeResponseMock.getErrors()).thenReturn(Collections.emptyList());
+        when(detokenizeResponseMock.getRecords()).thenReturn(Collections.singletonList(responseObject));
         when(detokenizeResponseMock.getSummary()).thenReturn(summary);
 
-        ArgumentCaptor<DetokenizeRequest> detokenizeRequestCaptor = ArgumentCaptor.forClass(DetokenizeRequest.class);
+        ArgumentCaptor<BulkDetokenizeRequest> detokenizeRequestCaptor = ArgumentCaptor.forClass(BulkDetokenizeRequest.class);
         when(vaultMock.bulkDetokenize(any())).thenReturn(detokenizeResponseMock);
 
         Dataset<Row> result = vaultHelper.detokenize(tableHelperMock, tokenizedData, properties);
 
         verify(vaultMock).bulkDetokenize(detokenizeRequestCaptor.capture());
-        DetokenizeRequest request = detokenizeRequestCaptor.getValue();
+        BulkDetokenizeRequest request = detokenizeRequestCaptor.getValue();
         assertTrue(request.getTokens().contains("token-12345"));
         assertEquals(1, request.getTokenGroupRedactions().size());
         assertEquals("override_group", request.getTokenGroupRedactions().get(0).getTokenGroupName());
@@ -743,16 +769,13 @@ class VaultHelperTest {
                         "\"alternate_name\": {\"tableName\": \"aliases\", \"columnName\": \"alias_name\"}" +
                         "}");
 
-        DetokenizeResponseObject primary = mock(DetokenizeResponseObject.class);
-        when(primary.getToken()).thenReturn("token-primary");
-        when(primary.getValue()).thenReturn("Alice");
+        BulkDetokenizeResponseRecord primary = mockDetokenizeSuccess("token-primary", "Alice");
 
         DetokenizeSummary summary = mock(DetokenizeSummary.class);
         when(summary.getTotalFailed()).thenReturn(0);
 
-        DetokenizeResponse response = mock(DetokenizeResponse.class);
-        when(response.getSuccess()).thenReturn(Collections.singletonList(primary));
-        when(response.getErrors()).thenReturn(Collections.emptyList());
+        BulkDetokenizeResponse response = mock(BulkDetokenizeResponse.class);
+        when(response.getRecords()).thenReturn(Collections.singletonList(primary));
         when(response.getSummary()).thenReturn(summary);
 
         when(vaultMock.bulkDetokenize(any())).thenReturn(response);
@@ -776,65 +799,36 @@ class VaultHelperTest {
 
         Dataset<Row> tokenizedData = createSampleTokenizedDataset();
 
-        DetokenizeResponseObject resp0 = mock(DetokenizeResponseObject.class);
-        when(resp0.getToken()).thenReturn("token0");
-        when(resp0.getValue()).thenReturn("John");
-
-        DetokenizeResponseObject resp1 = mock(DetokenizeResponseObject.class);
-        when(resp1.getToken()).thenReturn("token3");
-        when(resp1.getValue()).thenReturn("Elis");
-
-        DetokenizeResponseObject resp2 = mock(DetokenizeResponseObject.class);
-        when(resp2.getToken()).thenReturn("token4");
-        when(resp2.getValue()).thenReturn("Bob");
-
-        DetokenizeResponseObject resp3 = mock(DetokenizeResponseObject.class);
-        when(resp3.getToken()).thenReturn("token5");
-        when(resp3.getValue()).thenReturn("Edward");
-
-        ErrorRecord err1 = mock(ErrorRecord.class);
-        when(err1.getIndex()).thenReturn(1);
-        when(err1.getCode()).thenReturn(503); // retryable
-
-        ErrorRecord err2 = mock(ErrorRecord.class);
-        when(err2.getIndex()).thenReturn(2);
-        when(err2.getCode()).thenReturn(503); // retryable
+        // Only "first_nm" is mapped, so the request contains token0, token2, token4.
+        // token0 and token4 succeed immediately; token2 keeps failing through both retries.
+        BulkDetokenizeResponseRecord resp0 = mockDetokenizeSuccess("token0", "John");
+        BulkDetokenizeResponseRecord resp2 = mockDetokenizeSuccess("token4", "Bob");
+        BulkDetokenizeResponseRecord err1 = mockDetokenizeError(1, 503, "Service unavailable"); // retryable
 
         DetokenizeSummary summaryInitial = mock(DetokenizeSummary.class);
-        when(summaryInitial.getTotalFailed()).thenReturn(2);
+        when(summaryInitial.getTotalFailed()).thenReturn(1);
 
-        when(detokenizeResponseMock.getSuccess()).thenReturn(Arrays.asList(resp0, resp1, resp2, resp3));
-        when(detokenizeResponseMock.getErrors()).thenReturn(Arrays.asList(err1, err2));
+        when(detokenizeResponseMock.getRecords()).thenReturn(Arrays.asList(resp0, resp2, err1));
         when(detokenizeResponseMock.getSummary()).thenReturn(summaryInitial);
 
-        // Retry 1: success for token2, error for token3
-        DetokenizeResponseObject retryResp1 = mock(DetokenizeResponseObject.class);
-        when(retryResp1.getToken()).thenReturn("token1");
-        when(retryResp1.getValue()).thenReturn("Gwen");
-
-        ErrorRecord retryErr2 = mock(ErrorRecord.class);
-        when(retryErr2.getIndex()).thenReturn(0);
-        when(retryErr2.getCode()).thenReturn(503);
+        // Retry 1: token2 still failing (sole entry in this round's request, so index 0)
+        BulkDetokenizeResponseRecord retryErr2 = mockDetokenizeError(0, 503, "Service unavailable");
 
         DetokenizeSummary summaryRetry1 = mock(DetokenizeSummary.class);
         when(summaryRetry1.getTotalFailed()).thenReturn(1);
 
-        DetokenizeResponse retryResponse1 = mock(DetokenizeResponse.class);
-        when(retryResponse1.getSuccess()).thenReturn(Collections.singletonList(retryResp1));
-        when(retryResponse1.getErrors()).thenReturn(Collections.singletonList(retryErr2));
+        BulkDetokenizeResponse retryResponse1 = mock(BulkDetokenizeResponse.class);
+        when(retryResponse1.getRecords()).thenReturn(Collections.singletonList(retryErr2));
         when(retryResponse1.getSummary()).thenReturn(summaryRetry1);
 
-        // Retry 2: failure for token3
-        ErrorRecord retryErr3 = mock(ErrorRecord.class);
-        when(retryErr3.getIndex()).thenReturn(0);
-        when(retryErr3.getCode()).thenReturn(503);
+        // Retry 2: token2 still failing (retries exhausted; again the sole entry, index 0)
+        BulkDetokenizeResponseRecord retryErr3 = mockDetokenizeError(0, 503, "Service unavailable");
 
         DetokenizeSummary summaryRetry2 = mock(DetokenizeSummary.class);
         when(summaryRetry2.getTotalFailed()).thenReturn(1);
 
-        DetokenizeResponse retryResponse2 = mock(DetokenizeResponse.class);
-        when(retryResponse2.getSuccess()).thenReturn(Collections.emptyList());
-        when(retryResponse2.getErrors()).thenReturn(Collections.singletonList(retryErr3));
+        BulkDetokenizeResponse retryResponse2 = mock(BulkDetokenizeResponse.class);
+        when(retryResponse2.getRecords()).thenReturn(Collections.singletonList(retryErr3));
         when(retryResponse2.getSummary()).thenReturn(summaryRetry2);
 
         when(vaultMock.bulkDetokenize(any()))
@@ -864,35 +858,16 @@ class VaultHelperTest {
 
         Dataset<Row> tokenizedData = createSampleTokenizedDataset();
 
-        DetokenizeResponseObject resp0 = mock(DetokenizeResponseObject.class);
-        when(resp0.getToken()).thenReturn("token2");
-        when(resp0.getValue()).thenReturn("John");
-
-        DetokenizeResponseObject resp1 = mock(DetokenizeResponseObject.class);
-        when(resp1.getToken()).thenReturn("token3");
-        when(resp1.getValue()).thenReturn("Elis");
-
-        DetokenizeResponseObject resp2 = mock(DetokenizeResponseObject.class);
-        when(resp2.getToken()).thenReturn("token4");
-        when(resp2.getValue()).thenReturn("Bob");
-
-        DetokenizeResponseObject resp3 = mock(DetokenizeResponseObject.class);
-        when(resp3.getToken()).thenReturn("token5");
-        when(resp3.getValue()).thenReturn("Edward");
-
-        ErrorRecord err1 = mock(ErrorRecord.class);
-        when(err1.getIndex()).thenReturn(0);
-        when(err1.getCode()).thenReturn(404); // non retryable
-
-        ErrorRecord err2 = mock(ErrorRecord.class);
-        when(err2.getIndex()).thenReturn(1);
-        when(err2.getCode()).thenReturn(404); // non retryable
+        // Only "first_nm" is mapped, so the request contains token0, token2, token4.
+        // token2 and token4 succeed; token0 fails with a non-retryable error.
+        BulkDetokenizeResponseRecord resp1 = mockDetokenizeSuccess("token2", "John");
+        BulkDetokenizeResponseRecord resp2 = mockDetokenizeSuccess("token4", "Bob");
+        BulkDetokenizeResponseRecord err1 = mockDetokenizeError(0, 404, "Not Found"); // non retryable
 
         DetokenizeSummary summaryInitial = mock(DetokenizeSummary.class);
-        when(summaryInitial.getTotalFailed()).thenReturn(2);
+        when(summaryInitial.getTotalFailed()).thenReturn(1);
 
-        when(detokenizeResponseMock.getSuccess()).thenReturn(Arrays.asList(resp0, resp1, resp2, resp3));
-        when(detokenizeResponseMock.getErrors()).thenReturn(Arrays.asList(err1, err2));
+        when(detokenizeResponseMock.getRecords()).thenReturn(Arrays.asList(resp1, resp2, err1));
         when(detokenizeResponseMock.getSummary()).thenReturn(summaryInitial);
 
         when(vaultMock.bulkDetokenize(any()))
@@ -1051,39 +1026,26 @@ class VaultHelperTest {
         Dataset<Row> data = createSampleInputDataset();
 
         // Initial response: all failed but retryable errors
-        List<ErrorRecord> initialErrors = new ArrayList<>();
+        List<BulkInsertResponseRecord> initialErrors = new ArrayList<>();
         for (int i = 0; i < 3; i++) {
-            ErrorRecord err = mock(ErrorRecord.class);
-            when(err.getIndex()).thenReturn(i);
-            when(err.getCode()).thenReturn(503);
-            initialErrors.add(err);
+            initialErrors.add(mockInsertError(i, 503, "Service unavailable"));
         }
-        Summary initialSummary = mock(Summary.class);
+        BulkSummary initialSummary = mock(BulkSummary.class);
         when(initialSummary.getTotalFailed()).thenReturn(3);
 
-        when(insertResponseMock.getSuccess()).thenReturn(Collections.emptyList());
-        when(insertResponseMock.getErrors()).thenReturn(initialErrors);
+        when(insertResponseMock.getRecords()).thenReturn(initialErrors);
         when(insertResponseMock.getSummary()).thenReturn(initialSummary);
 
         // Retry 1: success on all
-        List<Success> retrySuccesses = new ArrayList<>();
+        List<BulkInsertResponseRecord> retrySuccesses = new ArrayList<>();
         for (int i = 0; i < 3; i++) {
-            Success success = mock(Success.class);
-            when(success.getIndex()).thenReturn(i);
-            Token token = mock(Token.class);
-            when(token.getToken()).thenReturn("token_r");
-            when(token.getTokenGroupName()).thenReturn("name");
-            Map<String, List<Token>> tokensMap = new HashMap<>();
-            tokensMap.put("name", Collections.singletonList(token));
-            when(success.getTokens()).thenReturn(tokensMap);
-            retrySuccesses.add(success);
+            retrySuccesses.add(mockInsertSuccess(i, "name", "token_r", "name"));
         }
-        Summary retrySummary = mock(Summary.class);
+        BulkSummary retrySummary = mock(BulkSummary.class);
         when(retrySummary.getTotalFailed()).thenReturn(0);
 
-        InsertResponse retryResponse = mock(InsertResponse.class);
-        when(retryResponse.getSuccess()).thenReturn(retrySuccesses);
-        when(retryResponse.getErrors()).thenReturn(Collections.emptyList());
+        BulkInsertResponse retryResponse = mock(BulkInsertResponse.class);
+        when(retryResponse.getRecords()).thenReturn(retrySuccesses);
         when(retryResponse.getSummary()).thenReturn(retrySummary);
 
         when(vaultMock.bulkInsert(any()))
@@ -1112,35 +1074,26 @@ class VaultHelperTest {
         Dataset<Row> data = createSampleInputDataset();
 
         // Initial response: all failed retryable errors
-        List<ErrorRecord> initialErrors = new ArrayList<>();
+        List<BulkInsertResponseRecord> initialErrors = new ArrayList<>();
         for (int i = 0; i < 3; i++) {
-            ErrorRecord err = mock(ErrorRecord.class);
-            when(err.getIndex()).thenReturn(i);
-            when(err.getCode()).thenReturn(503);
-            initialErrors.add(err);
+            initialErrors.add(mockInsertError(i, 503, "Service unavailable"));
         }
-        Summary initialSummary = mock(Summary.class);
+        BulkSummary initialSummary = mock(BulkSummary.class);
         when(initialSummary.getTotalFailed()).thenReturn(3);
 
-        when(insertResponseMock.getSuccess()).thenReturn(Collections.emptyList());
-        when(insertResponseMock.getErrors()).thenReturn(initialErrors);
+        when(insertResponseMock.getRecords()).thenReturn(initialErrors);
         when(insertResponseMock.getSummary()).thenReturn(initialSummary);
 
         // Retry 1: all retryable failed again
-        List<ErrorRecord> retryErrors = new ArrayList<>();
+        List<BulkInsertResponseRecord> retryErrors = new ArrayList<>();
         for (int i = 0; i < 3; i++) {
-            ErrorRecord err = mock(ErrorRecord.class);
-            when(err.getIndex()).thenReturn(i);
-            when(err.getCode()).thenReturn(503);
-            when(err.getError()).thenReturn("Service unavailable");
-            retryErrors.add(err);
+            retryErrors.add(mockInsertError(i, 503, "Service unavailable"));
         }
-        Summary retrySummary = mock(Summary.class);
+        BulkSummary retrySummary = mock(BulkSummary.class);
         when(retrySummary.getTotalFailed()).thenReturn(3);
 
-        InsertResponse retryResponse = mock(InsertResponse.class);
-        when(retryResponse.getSuccess()).thenReturn(Collections.emptyList());
-        when(retryResponse.getErrors()).thenReturn(retryErrors);
+        BulkInsertResponse retryResponse = mock(BulkInsertResponse.class);
+        when(retryResponse.getRecords()).thenReturn(retryErrors);
         when(retryResponse.getSummary()).thenReturn(retrySummary);
 
         when(vaultMock.bulkInsert(any()))
@@ -1170,34 +1123,26 @@ class VaultHelperTest {
         Dataset<Row> tokenizedData = createSampleTokenizedDataset();
 
         // Initial response: all failed retryable errors
-        List<ErrorRecord> initialErrors = new ArrayList<>();
+        List<BulkDetokenizeResponseRecord> initialErrors = new ArrayList<>();
         for (int i = 0; i < 6; i++) {
-            ErrorRecord err = mock(ErrorRecord.class);
-            when(err.getIndex()).thenReturn(i);
-            when(err.getCode()).thenReturn(503);
-            initialErrors.add(err);
+            initialErrors.add(mockDetokenizeError(i, 503, "Service unavailable"));
         }
         DetokenizeSummary initialSummary = mock(DetokenizeSummary.class);
         when(initialSummary.getTotalFailed()).thenReturn(6);
 
-        when(detokenizeResponseMock.getSuccess()).thenReturn(Collections.emptyList());
-        when(detokenizeResponseMock.getErrors()).thenReturn(initialErrors);
+        when(detokenizeResponseMock.getRecords()).thenReturn(initialErrors);
         when(detokenizeResponseMock.getSummary()).thenReturn(initialSummary);
 
         // Retry 1: success on all
-        List<DetokenizeResponseObject> retrySuccesses = new ArrayList<>();
+        List<BulkDetokenizeResponseRecord> retrySuccesses = new ArrayList<>();
         for (int i = 0; i < 6; i++) {
-            DetokenizeResponseObject resp = mock(DetokenizeResponseObject.class);
-            when(resp.getToken()).thenReturn("token" + i);
-            when(resp.getValue()).thenReturn("value" + i);
-            retrySuccesses.add(resp);
+            retrySuccesses.add(mockDetokenizeSuccess("token" + i, "value" + i));
         }
         DetokenizeSummary retrySummary = mock(DetokenizeSummary.class);
         when(retrySummary.getTotalFailed()).thenReturn(0);
 
-        DetokenizeResponse retryResponse = mock(DetokenizeResponse.class);
-        when(retryResponse.getSuccess()).thenReturn(retrySuccesses);
-        when(retryResponse.getErrors()).thenReturn(Collections.emptyList());
+        BulkDetokenizeResponse retryResponse = mock(BulkDetokenizeResponse.class);
+        when(retryResponse.getRecords()).thenReturn(retrySuccesses);
         when(retryResponse.getSummary()).thenReturn(retrySummary);
 
         when(vaultMock.bulkDetokenize(any()))
@@ -1225,35 +1170,26 @@ class VaultHelperTest {
         Dataset<Row> tokenizedData = createSampleTokenizedDataset();
 
         // Initial response: all failed retryable errors
-        List<ErrorRecord> initialErrors = new ArrayList<>();
+        List<BulkDetokenizeResponseRecord> initialErrors = new ArrayList<>();
         for (int i = 0; i < 6; i++) {
-            ErrorRecord err = mock(ErrorRecord.class);
-            when(err.getIndex()).thenReturn(i);
-            when(err.getCode()).thenReturn(503);
-            initialErrors.add(err);
+            initialErrors.add(mockDetokenizeError(i, 503, "Token not found"));
         }
         DetokenizeSummary initialSummary = mock(DetokenizeSummary.class);
         when(initialSummary.getTotalFailed()).thenReturn(3);
 
-        when(detokenizeResponseMock.getSuccess()).thenReturn(Collections.emptyList());
-        when(detokenizeResponseMock.getErrors()).thenReturn(initialErrors);
+        when(detokenizeResponseMock.getRecords()).thenReturn(initialErrors);
         when(detokenizeResponseMock.getSummary()).thenReturn(initialSummary);
 
         // Retry 1: all retryable failed again
-        List<ErrorRecord> retryErrors = new ArrayList<>();
+        List<BulkDetokenizeResponseRecord> retryErrors = new ArrayList<>();
         for (int i = 0; i < 6; i++) {
-            ErrorRecord err = mock(ErrorRecord.class);
-            when(err.getIndex()).thenReturn(i);
-            when(err.getCode()).thenReturn(503);
-            when(err.getError()).thenReturn("Token not found");
-            retryErrors.add(err);
+            retryErrors.add(mockDetokenizeError(i, 503, "Token not found"));
         }
         DetokenizeSummary retrySummary = mock(DetokenizeSummary.class);
         when(retrySummary.getTotalFailed()).thenReturn(3);
 
-        DetokenizeResponse retryResponse = mock(DetokenizeResponse.class);
-        when(retryResponse.getSuccess()).thenReturn(Collections.emptyList());
-        when(retryResponse.getErrors()).thenReturn(retryErrors);
+        BulkDetokenizeResponse retryResponse = mock(BulkDetokenizeResponse.class);
+        when(retryResponse.getRecords()).thenReturn(retryErrors);
         when(retryResponse.getSummary()).thenReturn(retrySummary);
 
         when(vaultMock.bulkDetokenize(any()))
@@ -1284,27 +1220,15 @@ class VaultHelperTest {
 
         Dataset<Row> data = createSampleInputDataset();
 
-        // InsertResponse has errors, none retryable
-        ErrorRecord err1 = mock(ErrorRecord.class);
-        when(err1.getCode()).thenReturn(400); // Non-retryable
-        when(err1.getIndex()).thenReturn(0);
-        when(err1.getError()).thenReturn("Bad Request");
+        // BulkInsertResponse has errors, none retryable
+        BulkInsertResponseRecord err1 = mockInsertError(0, 400, "Bad Request"); // Non-retryable
+        BulkInsertResponseRecord err2 = mockInsertError(1, 400, "Unique constraint failed"); // Non-retryable
+        BulkInsertResponseRecord err3 = mockInsertError(2, 400, "Column not found"); // Non-retryable
 
-        ErrorRecord err2 = mock(ErrorRecord.class);
-        when(err2.getCode()).thenReturn(400); // Non-retryable
-        when(err2.getIndex()).thenReturn(1);
-        when(err2.getError()).thenReturn("Unique constraint failed");
-
-        ErrorRecord err3 = mock(ErrorRecord.class);
-        when(err3.getCode()).thenReturn(400); // Non-retryable
-        when(err3.getIndex()).thenReturn(2);
-        when(err3.getError()).thenReturn("Column not found");
-
-        Summary summary = mock(Summary.class);
+        BulkSummary summary = mock(BulkSummary.class);
         when(summary.getTotalFailed()).thenReturn(2);
 
-        when(insertResponseMock.getSuccess()).thenReturn(Collections.emptyList());
-        when(insertResponseMock.getErrors()).thenReturn(Arrays.asList(err1, err2, err3));
+        when(insertResponseMock.getRecords()).thenReturn(Arrays.asList(err1, err2, err3));
         when(insertResponseMock.getSummary()).thenReturn(summary);
 
         when(vaultMock.bulkInsert(any())).thenReturn(insertResponseMock);
@@ -1333,24 +1257,15 @@ class VaultHelperTest {
 
         Dataset<Row> tokenizedData = createSampleTokenizedDataset();
 
-        // DetokenizeResponse has errors, none retryable
-        ErrorRecord err1 = mock(ErrorRecord.class);
-        when(err1.getCode()).thenReturn(400); // Non-retryable
-        when(err1.getIndex()).thenReturn(0);
-
-        ErrorRecord err2 = mock(ErrorRecord.class);
-        when(err2.getCode()).thenReturn(400); // Non-retryable
-        when(err2.getIndex()).thenReturn(1);
-
-        ErrorRecord err3 = mock(ErrorRecord.class);
-        when(err3.getCode()).thenReturn(400); // Non-retryable
-        when(err3.getIndex()).thenReturn(2);
+        // Only "first_nm" is mapped, so the request contains token0, token2, token4 — all fail.
+        BulkDetokenizeResponseRecord err1 = mockDetokenizeError(0, 400, "Bad Request"); // Non-retryable
+        BulkDetokenizeResponseRecord err2 = mockDetokenizeError(1, 400, "Bad Request"); // Non-retryable
+        BulkDetokenizeResponseRecord err3 = mockDetokenizeError(2, 400, "Bad Request"); // Non-retryable
 
         DetokenizeSummary summary = mock(DetokenizeSummary.class);
         when(summary.getTotalFailed()).thenReturn(3);
 
-        when(detokenizeResponseMock.getSuccess()).thenReturn(Collections.emptyList());
-        when(detokenizeResponseMock.getErrors()).thenReturn(Arrays.asList(err1, err2, err3));
+        when(detokenizeResponseMock.getRecords()).thenReturn(Arrays.asList(err1, err2, err3));
         when(detokenizeResponseMock.getSummary()).thenReturn(summary);
 
         when(vaultMock.bulkDetokenize(any())).thenReturn(detokenizeResponseMock);
@@ -1375,43 +1290,23 @@ class VaultHelperTest {
         Dataset<Row> data = createSampleInputDataset();
 
         // Initial response: 1 success, 1 retryable error
-        Success success0 = mock(Success.class);
-        when(success0.getIndex()).thenReturn(0);
-        Token token = mock(Token.class);
-        when(token.getToken()).thenReturn("token1");
-        when(token.getTokenGroupName()).thenReturn("name");
-        HashMap<String, List<Token>> tokensMap = new HashMap<>();
-        tokensMap.put("name", Collections.singletonList(token));
-        when(success0.getTokens()).thenReturn(tokensMap);
-        when(success0.getTable()).thenReturn("name");
+        BulkInsertResponseRecord success0 = mockInsertSuccess(0, "name", "token1", "name");
+        BulkInsertResponseRecord error1 = mockInsertError(1, 503, "Service unavailable"); // Retryable
 
-        ErrorRecord error1 = mock(ErrorRecord.class);
-        when(error1.getIndex()).thenReturn(1);
-        when(error1.getCode()).thenReturn(503); // Retryable
-
-        Summary summaryInitial = mock(Summary.class);
+        BulkSummary summaryInitial = mock(BulkSummary.class);
         when(summaryInitial.getTotalFailed()).thenReturn(1);
 
-        when(insertResponseMock.getSuccess()).thenReturn(Collections.singletonList(success0));
-        when(insertResponseMock.getErrors()).thenReturn(Collections.singletonList(error1));
+        when(insertResponseMock.getRecords()).thenReturn(Arrays.asList(success0, error1));
         when(insertResponseMock.getSummary()).thenReturn(summaryInitial);
 
         // Retry response: success on retry
-        Success retrySuccess = mock(Success.class);
-        when(retrySuccess.getIndex()).thenReturn(0);
-        Token retryToken = mock(Token.class);
-        when(retryToken.getToken()).thenReturn("token2");
-        when(retryToken.getTokenGroupName()).thenReturn("name");
-        HashMap<String, List<Token>> retryTokensMap = new HashMap<>();
-        retryTokensMap.put("name", Collections.singletonList(retryToken));
-        when(retrySuccess.getTokens()).thenReturn(retryTokensMap);
+        BulkInsertResponseRecord retrySuccess = mockInsertSuccess(0, "name", "token2", "name");
 
-        Summary summaryRetry = mock(Summary.class);
+        BulkSummary summaryRetry = mock(BulkSummary.class);
         when(summaryRetry.getTotalFailed()).thenReturn(0);
 
-        InsertResponse retryResponse = mock(InsertResponse.class);
-        when(retryResponse.getSuccess()).thenReturn(Collections.singletonList(retrySuccess));
-        when(retryResponse.getErrors()).thenReturn(Collections.emptyList());
+        BulkInsertResponse retryResponse = mock(BulkInsertResponse.class);
+        when(retryResponse.getRecords()).thenReturn(Collections.singletonList(retrySuccess));
         when(retryResponse.getSummary()).thenReturn(summaryRetry);
 
         when(vaultMock.bulkInsert(any()))
@@ -1437,33 +1332,25 @@ class VaultHelperTest {
         mockInitializeSkyflowClientForTest();
 
         Dataset<Row> tokenizedData = createSampleTokenizedDataset();
-        // Initial response: 1 success, 1 retryable error
-        DetokenizeResponseObject resp0 = mock(DetokenizeResponseObject.class);
-        when(resp0.getToken()).thenReturn("token0");
-        when(resp0.getValue()).thenReturn("John");
-
-        ErrorRecord error1 = mock(ErrorRecord.class);
-        when(error1.getIndex()).thenReturn(1);
-        when(error1.getCode()).thenReturn(503); // Retryable
+        // Only "first_nm" is mapped, so the request contains token0, token2, token4.
+        // Initial response: token0 succeeds, token2 fails with a retryable error.
+        BulkDetokenizeResponseRecord resp0 = mockDetokenizeSuccess("token0", "John");
+        BulkDetokenizeResponseRecord error1 = mockDetokenizeError(1, 503, "Service unavailable"); // Retryable
 
         DetokenizeSummary summaryInitial = mock(DetokenizeSummary.class);
         when(summaryInitial.getTotalFailed()).thenReturn(1);
 
-        when(detokenizeResponseMock.getSuccess()).thenReturn(Collections.singletonList(resp0));
-        when(detokenizeResponseMock.getErrors()).thenReturn(Collections.singletonList(error1));
+        when(detokenizeResponseMock.getRecords()).thenReturn(Arrays.asList(resp0, error1));
         when(detokenizeResponseMock.getSummary()).thenReturn(summaryInitial);
 
         // Retry response: success on retry
-        DetokenizeResponseObject retryResp = mock(DetokenizeResponseObject.class);
-        when(retryResp.getToken()).thenReturn("token2");
-        when(retryResp.getValue()).thenReturn("Alice");
+        BulkDetokenizeResponseRecord retryResp = mockDetokenizeSuccess("token2", "Alice");
 
         DetokenizeSummary summaryRetry = mock(DetokenizeSummary.class);
         when(summaryRetry.getTotalFailed()).thenReturn(0);
 
-        DetokenizeResponse retryResponse = mock(DetokenizeResponse.class);
-        when(retryResponse.getSuccess()).thenReturn(Collections.singletonList(retryResp));
-        when(retryResponse.getErrors()).thenReturn(Collections.emptyList());
+        BulkDetokenizeResponse retryResponse = mock(BulkDetokenizeResponse.class);
+        when(retryResponse.getRecords()).thenReturn(Collections.singletonList(retryResp));
         when(retryResponse.getSummary()).thenReturn(summaryRetry);
 
         when(vaultMock.bulkDetokenize(any()))
